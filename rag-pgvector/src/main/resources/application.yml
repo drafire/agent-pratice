@@ -3,15 +3,16 @@ spring:
     name: rag-pgvector-example
 
   datasource:
-    url: jdbc:postgresql://127.0.0.1:5432/postgres
-    username: postgres
-    password: mysecretpassword
+    url: jdbc:postgresql://drafire.pg.polardb.rds.aliyuncs.com:5432/drafire_ai_db
+    username: drafire_test
+    password: ${pg_password}
 
   ai:
     dashscope:
       api-key: ${DASH_SCOPE_API_KEY}
     vectorstore:
       pgvector:
-        dimensions: 1536
+        dimensions: 1024   #这里需要和创建的vector的维度一样
         index-type: hnsw
         distance-type: cosine_distance
+        initialize-schema: true  # 开启自动建表
