@@ -1,6 +1,5 @@
 package com.drafire;
 
-import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -39,8 +38,14 @@ public class RagController {
         return ragService.chatWithDocument(message);
     }
 
-    @GetMapping(value = "/query", produces = "text/plain;charset=UTF-8")
-    public Flux<String> query(@RequestParam(value = "message",
+    /**
+     * 带有rerank 排序的查询
+     * @param message
+     * @return
+     * @throws IOException
+     */
+    @GetMapping(value = "/queryRerank", produces = "text/plain;charset=UTF-8")
+    public Flux<String> queryRerank(@RequestParam(value = "message",
             defaultValue = "帮我分析美的空调的优缺点") String message) throws IOException {
 
         return ragService.query(message);
