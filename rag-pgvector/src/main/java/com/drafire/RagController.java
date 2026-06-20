@@ -1,11 +1,15 @@
 package com.drafire;
 
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.vectorstore.SearchRequest;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import reactor.core.publisher.Flux;
+
+import java.io.IOException;
 
 @RestController
 @RequestMapping("/rag")
@@ -23,5 +27,18 @@ public class RagController {
             "2.2 多格式文档解析：支持导入 PDF、Word、Markdown 以及纯文本（TXT）等多种格式的文件。系统会自动进行文本清洗、分块（Chunking）并向量化处理。\n" +
             "2.3 权限管理控制：采用 RBAC（基于角色的访问控制）模型，确保不同部门的员工只能检索和查看其权限范围内的知识内容，保障企业数据安全。\n") String message) {
         return ragService.insertText(message);
+    }
+
+
+    @PostMapping("/import/files")
+    public ResponseEntity<String> importFiles(@RequestPart(value = "file", required = false) MultipartFile file) {
+        return ragService.importFiles(file);
+    }
+
+    @GetMapping(value = "/query", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public String query(@RequestParam(value = "message",
+            defaultValue = "帮我分析美的空调的优缺点") String message) throws IOException {
+
+        return ragService.chatWithDocument(message);
     }
 }
