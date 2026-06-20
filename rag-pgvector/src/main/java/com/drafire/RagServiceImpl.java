@@ -1,10 +1,10 @@
 package com.drafire;
 
+import com.alibaba.cloud.ai.advisor.RetrievalRerankAdvisor;
 import com.alibaba.cloud.ai.model.RerankModel;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
 import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.PromptTemplate;
 import org.springframework.ai.chat.prompt.SystemPromptTemplate;
 import org.springframework.ai.document.Document;
@@ -13,8 +13,10 @@ import org.springframework.ai.rag.generation.augmentation.ContextualQueryAugment
 import org.springframework.ai.rag.retrieval.search.VectorStoreDocumentRetriever;
 import org.springframework.ai.reader.tika.TikaDocumentReader;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
+import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -30,16 +32,14 @@ import java.util.List;
 @Service
 public class RagServiceImpl {
     private final VectorStore vectorStore;
-    private final ChatModel chatModel;
     private final RerankModel rerankModel;
     private final RetrievalAugmentationAdvisor retrievalAugmentationAdvisor;
     private final ChatClient chatClient;
 
     private final Resource systemResource;
 
-    public RagServiceImpl(VectorStore vectorStore, ChatModel chatModel, RerankModel rerankModel, ChatClient.Builder chatClientBuilder, @Value("classpath:/prompts/system-qa.st") Resource systemResource) {
+    public RagServiceImpl(VectorStore vectorStore, RerankModel rerankModel, ChatClient.Builder chatClientBuilder, @Value("classpath:/prompts/system-qa.st") Resource systemResource) {
         this.vectorStore = vectorStore;
-        this.chatModel = chatModel;
         this.rerankModel = rerankModel;
         this.systemResource = systemResource;
         try {
@@ -117,36 +117,17 @@ public class RagServiceImpl {
         return ResponseEntity.ok("success");
     }
 
-    public Flux<ChatResponse> query(String message) throws IOException {
-        String contentAsString = systemResource.getContentAsString(StandardCharsets.UTF_8);
-        SystemPromptTemplate systemPromptTemplate = new SystemPromptTemplate(contentAsString);
+    public Flux<String> query(String message) {
+        SearchRequest searchRequest = SearchRequest.builder().topK(2).build();
+        SystemPromptTemplate userTextAdvise = new SystemPromptTemplate(
+                new ClassPathResource("prompts/system-rerank.st"));
+//        SystemPromptTemplate userTextAdvise = new SystemPromptTemplate("用户问题: {query}");
 
-        // 2. 定义当检索结果为空时的兜底提示模板
-        PromptTemplate emptyContextPromptTemplate = new PromptTemplate("""
-                抱歉，我在知识库中没有找到关于该问题的相关信息，无法回答。
-                """);
-
-        RetrievalAugmentationAdvisor retrievalAugmentationAdvisor = RetrievalAugmentationAdvisor.builder()
-                .documentRetriever(VectorStoreDocumentRetriever.builder()
-                        .vectorStore(vectorStore)
-                        .similarityThreshold(0.8)
-                        .build())
-                .queryAugmenter(ContextualQueryAugmenter.builder()
-                        .promptTemplate(systemPromptTemplate)   //这个类似于RetrievalRerankAdvisor的prompt
-                        .emptyContextPromptTemplate(emptyContextPromptTemplate)
-                        .allowEmptyContext(false) // 不允许空上下文，触发兜底提示
-                        .build())
-                .build();
-
-        return ChatClient.builder(chatModel)
-                //.defaultAdvisors(new RetrievalRerankAdvisor(vectorStore, rerankModel, searchRequest, systemPromptTemplate, 0.8))
-                .defaultAdvisors(retrievalAugmentationAdvisor)
-                .defaultAdvisors(new SimpleLoggerAdvisor())
-                .build()
-                .prompt()
+        return chatClient.prompt()
+                .advisors(new RetrievalRerankAdvisor(vectorStore, rerankModel, searchRequest, userTextAdvise, 0.2))
+                .advisors(new SimpleLoggerAdvisor())
                 .user(message)
-                .stream().chatResponse()
-                ;
+                .stream().content();
     }
 
     public Flux<String> chatWithDocument(String prompt) {
