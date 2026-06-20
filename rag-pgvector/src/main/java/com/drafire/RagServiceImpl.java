@@ -54,8 +54,8 @@ public class RagServiceImpl {
 
             this.retrievalAugmentationAdvisor = RetrievalAugmentationAdvisor.builder()
                     .documentRetriever(VectorStoreDocumentRetriever.builder()
-                            .similarityThreshold(0.5)  // 降低阈值，提高召回率
-                            .topK(5)
+                            .similarityThreshold(0.3)  // 降低阈值，提高召回率
+                            .topK(3)
                             .vectorStore(this.vectorStore)
                             .build())
                     .queryAugmenter(ContextualQueryAugmenter.builder()
@@ -149,10 +149,10 @@ public class RagServiceImpl {
                 ;
     }
 
-    public String chatWithDocument(String prompt) {
+    public Flux<String> chatWithDocument(String prompt) {
         System.out.println("prompt:" + prompt);
         return chatClient.prompt()
                 .advisors(retrievalAugmentationAdvisor)
-                .user(prompt).call().content();
+                .user(prompt).stream().content();
     }
 }
