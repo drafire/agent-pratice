@@ -14,12 +14,16 @@ import org.springframework.ai.transformer.ContentFormatTransformer;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.pgvector.PgVectorStore;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,13 +38,16 @@ public class KnowledgeBaseService {
     private final KnowledgeBaseVectorStoreManager storeManager;
     private final KnowledgeBaseProperties properties;
     private final ChatModel chatModel;
+    private final JdbcTemplate jdbcTemplate;
 
     public KnowledgeBaseService(KnowledgeBaseVectorStoreManager storeManager,
                                 KnowledgeBaseProperties properties,
-                                ChatModel chatModel) {
+                                ChatModel chatModel,
+                                JdbcTemplate jdbcTemplate) {
         this.storeManager = storeManager;
         this.properties = properties;
         this.chatModel = chatModel;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     public String importText(String scope, String text) {
@@ -115,19 +122,31 @@ public class KnowledgeBaseService {
 
     public List<Document> multiRecall(String query, List<String> scopes) {
         List<CompletableFuture<List<Document>>> futures = scopes.stream()
-                .map(scope -> CompletableFuture.supplyAsync(() -> {
+                .flatMap(scope -> {
                     KnowledgeBaseProperties.StoreConfig config = findStoreConfig(scope);
-                    PgVectorStore store = storeManager.getStore(scope);
-                    SearchRequest request = SearchRequest.builder()
-                            .query(query)
-                            .topK(config.getTopK())
-                            .similarityThreshold(config.getSimilarityThreshold())
-                            .build();
-                    List<Document> docs = store.similaritySearch(request);
-                    docs.forEach(doc -> doc.getMetadata().put("source_scope", scope));
-                    logger.info("多路召回: scope={}, 命中={}", scope, docs.size());
-                    return docs;
-                }))
+                    CompletableFuture<List<Document>> vectorFuture = CompletableFuture.supplyAsync(() -> {
+                        PgVectorStore store = storeManager.getStore(scope);
+                        SearchRequest request = SearchRequest.builder()
+                                .query(query)
+                                .topK(config.getTopK())
+                                .similarityThreshold(config.getSimilarityThreshold())
+                                .build();
+                        List<Document> docs = store.similaritySearch(request);
+                        docs.forEach(doc -> doc.getMetadata().put("source_scope", scope));
+                        docs.forEach(doc -> doc.getMetadata().put("recall_method", "vector"));
+                        logger.info("向量召回: scope={}, 命中={}", scope, docs.size());
+                        return docs;
+                    });
+                    CompletableFuture<List<Document>> keywordFuture = CompletableFuture.supplyAsync(() -> {
+                        List<Document> docs = keywordSearch(query, config.getTableName(),
+                                config.getTopK(), config.getSimilarityThreshold());
+                        docs.forEach(doc -> doc.getMetadata().put("source_scope", scope));
+                        docs.forEach(doc -> doc.getMetadata().put("recall_method", "keyword"));
+                        logger.info("关键词召回: scope={}, 命中={}", scope, docs.size());
+                        return docs;
+                    });
+                    return List.of(vectorFuture, keywordFuture).stream();
+                })
                 .toList();
 
         List<Document> allDocs = futures.stream()
@@ -148,6 +167,34 @@ public class KnowledgeBaseService {
         result.sort((a, b) -> Double.compare(getScore(b), getScore(a)));
         logger.info("多路召回完成: 总命中={}, 去重后={}", allDocs.size(), result.size());
         return result;
+    }
+
+    private List<Document> keywordSearch(String query, String tableName, int topK, double threshold) {
+        String sql = """
+                SELECT id, content, metadata, similarity(content, ?) AS score
+                FROM %s
+                WHERE similarity(content, ?) > ?
+                ORDER BY score DESC
+                LIMIT ?
+                """.formatted(tableName);
+        return jdbcTemplate.query(sql,
+                ps -> {
+                    ps.setString(1, query);
+                    ps.setString(2, query);
+                    ps.setDouble(3, threshold);
+                    ps.setInt(4, topK);
+                },
+                this::mapRow);
+    }
+
+    private Document mapRow(ResultSet rs, int rowNum) throws SQLException {
+        Map<String, Object> metadata = new HashMap<>();
+        String metadataJson = rs.getString("metadata");
+        if (metadataJson != null && !metadataJson.isEmpty()) {
+            metadata.put("raw", metadataJson);
+        }
+        metadata.put("distance", rs.getDouble("score"));
+        return new Document(rs.getString("id"), rs.getString("content"), metadata);
     }
 
     private KnowledgeBaseProperties.StoreConfig findStoreConfig(String scope) {
