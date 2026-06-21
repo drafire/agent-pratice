@@ -1,5 +1,6 @@
 package com.drafire;
 
+import com.drafire.service.KnowledgeService;
 import org.springframework.ai.document.Document;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
