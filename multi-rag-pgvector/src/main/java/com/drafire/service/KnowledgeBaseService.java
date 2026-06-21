@@ -23,6 +23,7 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 @Service
@@ -113,20 +114,26 @@ public class KnowledgeBaseService {
     }
 
     public List<Document> multiRecall(String query, List<String> scopes) {
-        List<Document> allDocs = new ArrayList<>();
-        for (String scope : scopes) {
-            KnowledgeBaseProperties.StoreConfig config = findStoreConfig(scope);
-            PgVectorStore store = storeManager.getStore(scope);
-            SearchRequest request = SearchRequest.builder()
-                    .query(query)
-                    .topK(config.getTopK())
-                    .similarityThreshold(config.getSimilarityThreshold())
-                    .build();
-            List<Document> docs = store.similaritySearch(request);
-            docs.forEach(doc -> doc.getMetadata().put("source_scope", scope));
-            allDocs.addAll(docs);
-            logger.info("多路召回: scope={}, 命中={}", scope, docs.size());
-        }
+        List<CompletableFuture<List<Document>>> futures = scopes.stream()
+                .map(scope -> CompletableFuture.supplyAsync(() -> {
+                    KnowledgeBaseProperties.StoreConfig config = findStoreConfig(scope);
+                    PgVectorStore store = storeManager.getStore(scope);
+                    SearchRequest request = SearchRequest.builder()
+                            .query(query)
+                            .topK(config.getTopK())
+                            .similarityThreshold(config.getSimilarityThreshold())
+                            .build();
+                    List<Document> docs = store.similaritySearch(request);
+                    docs.forEach(doc -> doc.getMetadata().put("source_scope", scope));
+                    logger.info("多路召回: scope={}, 命中={}", scope, docs.size());
+                    return docs;
+                }))
+                .toList();
+
+        List<Document> allDocs = futures.stream()
+                .map(CompletableFuture::join)
+                .flatMap(List::stream)
+                .collect(Collectors.toList());
 
         Map<String, Document> unique = new LinkedHashMap<>();
         for (Document doc : allDocs) {
