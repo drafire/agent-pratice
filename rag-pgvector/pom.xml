@@ -50,6 +50,11 @@
             <artifactId>spring-ai-tika-document-reader</artifactId>
         </dependency>
 
+        <dependency>
+            <groupId>com.alibaba.cloud.ai</groupId>
+            <artifactId>spring-ai-alibaba-rag</artifactId>
+        </dependency>
+
     </dependencies>
 
     <dependencyManagement>
