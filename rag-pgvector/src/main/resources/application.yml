@@ -3,7 +3,7 @@ spring:
     name: rag-pgvector-example
   autoconfigure:
     exclude:
-      - org.springframework.ai.vectorstore.elasticsearch.autoconfigure.ElasticsearchVectorStoreAutoConfiguration
+      - org.springframework.ai.vectorstore.elasticsearch.autoconfigure.ElasticsearchVectorStoreAutoConfiguration   # 排除elasticsearch的自动配置，因为我们使用的是pgvector
 
   datasource:
     #注意，如果使用阿里云的pgvector，这个url应该对应的公网地址
