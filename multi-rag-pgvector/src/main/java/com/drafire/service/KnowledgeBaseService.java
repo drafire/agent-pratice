@@ -1,5 +1,6 @@
 package com.drafire.service;
 
+import com.drafire.config.KnowledgeBaseProperties;
 import com.drafire.config.KnowledgeBaseVectorStoreManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,13 +12,18 @@ import org.springframework.ai.model.transformer.KeywordMetadataEnricher;
 import org.springframework.ai.reader.tika.TikaDocumentReader;
 import org.springframework.ai.transformer.ContentFormatTransformer;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
+import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.pgvector.PgVectorStore;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 public class KnowledgeBaseService {
@@ -25,10 +31,14 @@ public class KnowledgeBaseService {
     private static final Logger logger = LoggerFactory.getLogger(KnowledgeBaseService.class);
 
     private final KnowledgeBaseVectorStoreManager storeManager;
+    private final KnowledgeBaseProperties properties;
     private final ChatModel chatModel;
 
-    public KnowledgeBaseService(KnowledgeBaseVectorStoreManager storeManager, ChatModel chatModel) {
+    public KnowledgeBaseService(KnowledgeBaseVectorStoreManager storeManager,
+                                KnowledgeBaseProperties properties,
+                                ChatModel chatModel) {
         this.storeManager = storeManager;
+        this.properties = properties;
         this.chatModel = chatModel;
     }
 
@@ -100,5 +110,51 @@ public class KnowledgeBaseService {
         logger.info("文件导入知识库成功: scope={}, fileName={}, chunks={}",
                 scope, file.getOriginalFilename(), chunks.size());
         return "success";
+    }
+
+    public List<Document> multiRecall(String query, List<String> scopes) {
+        List<Document> allDocs = new ArrayList<>();
+        for (String scope : scopes) {
+            KnowledgeBaseProperties.StoreConfig config = findStoreConfig(scope);
+            PgVectorStore store = storeManager.getStore(scope);
+            SearchRequest request = SearchRequest.builder()
+                    .query(query)
+                    .topK(config.getTopK())
+                    .similarityThreshold(config.getSimilarityThreshold())
+                    .build();
+            List<Document> docs = store.similaritySearch(request);
+            docs.forEach(doc -> doc.getMetadata().put("source_scope", scope));
+            allDocs.addAll(docs);
+            logger.info("多路召回: scope={}, 命中={}", scope, docs.size());
+        }
+
+        Map<String, Document> unique = new LinkedHashMap<>();
+        for (Document doc : allDocs) {
+            String key = doc.getText().trim();
+            Document existing = unique.get(key);
+            if (existing == null || getScore(doc) > getScore(existing)) {
+                unique.put(key, doc);
+            }
+        }
+
+        List<Document> result = new ArrayList<>(unique.values());
+        result.sort((a, b) -> Double.compare(getScore(b), getScore(a)));
+        logger.info("多路召回完成: 总命中={}, 去重后={}", allDocs.size(), result.size());
+        return result;
+    }
+
+    private KnowledgeBaseProperties.StoreConfig findStoreConfig(String scope) {
+        return properties.getStores().stream()
+                .filter(s -> s.getScope().equals(scope))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("未知的知识库: " + scope));
+    }
+
+    private double getScore(Document doc) {
+        Object score = doc.getMetadata().get("distance");
+        if (score instanceof Number) {
+            return ((Number) score).doubleValue();
+        }
+        return 0.0;
     }
 }

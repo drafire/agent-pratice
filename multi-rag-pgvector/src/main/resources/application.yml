@@ -51,16 +51,16 @@ knowledge-base:
       dimensions: 1024
       index-type: hnsw
       top-k: 5
-      similarity-threshold: 0.7
+      similarity-threshold: 0.5
     - scope: tech
       table-name: tech_embeddings
       dimensions: 1024
       index-type: hnsw
       top-k: 5
-      similarity-threshold: 0.6
+      similarity-threshold: 0.5
     - scope: faq
       table-name: faq_embeddings
       dimensions: 1024
       index-type: ivfflat      # FAQ 数据量大，用 IVF 更快
       top-k: 3
-      similarity-threshold: 0.8
+      similarity-threshold: 0.5
