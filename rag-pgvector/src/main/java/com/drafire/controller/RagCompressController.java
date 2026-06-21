@@ -1,4 +1,4 @@
-package com.drafire;
+package com.drafire.controller;
 
 
 import org.springframework.ai.chat.client.ChatClient;
@@ -9,8 +9,6 @@ import org.springframework.ai.rag.preretrieval.query.transformation.CompressionQ
 import org.springframework.ai.rag.retrieval.search.VectorStoreDocumentRetriever;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.function.Consumer;
 
 @RestController
 @RequestMapping("/rag/compression")

@@ -1,4 +1,4 @@
-package com.drafire;
+package com.drafire.controller;
 
 import com.drafire.service.RagServiceImpl;
 import org.springframework.http.ResponseEntity;

@@ -16,6 +16,9 @@ spring:
         model: text-embedding-v3  # 使用通义千文的嵌入模型
         dimensions: 1024          # 与 pgvector 配置的维度一致
 #      # 确保配置了正确的 rerank 模型名称
+      rerank:
+        options:
+          model: qwen3-rerank
     vectorstore:
       pgvector:
         dimensions: 1024   #这里需要和创建的vector的维度一样
