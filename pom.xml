@@ -40,6 +40,7 @@
     <modules>
         <module>rag-pgvector</module>
         <module>multi-rag-pgvector</module>
+        <module>graph-pratice</module>
     </modules>
 
     <dependencyManagement>
