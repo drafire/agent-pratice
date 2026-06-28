@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.drafire.data.BookingMapper">
+
+    <resultMap id="bookingResultMap" type="com.drafire.data.Booking">
+        <id property="bookingNumber" column="booking_number"/>
+        <result property="date" column="date"/>
+        <result property="bookingTo" column="booking_to"/>
+        <result property="from" column="origin"/>
+        <result property="to" column="destination"/>
+        <result property="bookingStatus" column="booking_status"/>
+        <result property="bookingClass" column="booking_class"/>
+        <association property="customer" javaType="com.drafire.data.Customer">
+            <result property="name" column="customer_name"/>
+        </association>
+    </resultMap>
+
+    <select id="findByBookingNumberAndCustomerName" resultMap="bookingResultMap">
+        SELECT booking_number, date, booking_to, customer_name, origin, destination, booking_status, booking_class
+        FROM booking
+        WHERE booking_number = #{bookingNumber}
+          AND customer_name = #{customerName}
+    </select>
+
+    <update id="updateBooking">
+        UPDATE booking
+        SET date        = #{newDate},
+            origin      = #{origin},
+            destination = #{destination}
+        WHERE booking_number = #{bookingNumber}
+          AND customer_name = #{customerName}
+    </update>
+
+    <update id="updateBookingStatus">
+        UPDATE booking
+        SET booking_status = #{status}
+        WHERE booking_number = #{bookingNumber}
+          AND customer_name = #{customerName}
+    </update>
+
+    <insert id="insertBooking">
+        INSERT INTO booking (booking_number, date, booking_to, customer_name, origin, destination, booking_status, booking_class)
+        VALUES (#{bookingNumber}, #{date}, #{bookingTo}, #{customer.name}, #{from}, #{to}, #{bookingStatus}, #{bookingClass})
+    </insert>
+
+</mapper>
