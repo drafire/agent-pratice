@@ -12,6 +12,36 @@
         username: username || ''
     };
 
+    function injectAuth(url) {
+        var qIndex = url.indexOf('?');
+        var base = qIndex === -1 ? url : url.substring(0, qIndex);
+        var query = qIndex === -1 ? '' : url.substring(qIndex + 1);
+
+        var params = {};
+        if (query) {
+            var pairs = query.split('&');
+            for (var i = 0; i < pairs.length; i++) {
+                var eq = pairs[i].indexOf('=');
+                if (eq !== -1) {
+                    var key = decodeURIComponent(pairs[i].substring(0, eq));
+                    var val = pairs[i].substring(eq + 1);
+                    params[key] = val;
+                }
+            }
+        }
+
+        params.chatId = username;
+        params.token = token;
+
+        var newQuery = [];
+        for (var k in params) {
+            if (params.hasOwnProperty(k)) {
+                newQuery.push(encodeURIComponent(k) + '=' + params[k]);
+            }
+        }
+        return base + '?' + newQuery.join('&');
+    }
+
     var originalFetch = window.fetch;
     window.fetch = function(url, options) {
         options = options || {};
@@ -19,13 +49,13 @@
         if (!options.headers['Authorization']) {
             options.headers['Authorization'] = 'Bearer ' + token;
         }
-        return originalFetch.call(this, url, options);
+        return originalFetch.call(this, injectAuth(url), options);
     };
 
     var originalXHROpen = XMLHttpRequest.prototype.open;
     XMLHttpRequest.prototype.open = function(method, url) {
         this._authUrl = url;
-        return originalXHROpen.apply(this, arguments);
+        return originalXHROpen.call(this, method, injectAuth(url));
     };
     var originalXHRSend = XMLHttpRequest.prototype.send;
     XMLHttpRequest.prototype.send = function(body) {
@@ -37,9 +67,7 @@
 
     var OriginalEventSource = window.EventSource;
     window.EventSource = function(url, config) {
-        var separator = url.indexOf('?') !== -1 ? '&' : '?';
-        var newUrl = url + separator + 'token=' + encodeURIComponent(token);
-        return new OriginalEventSource(newUrl, config);
+        return new OriginalEventSource(injectAuth(url), config);
     };
     window.EventSource.prototype = OriginalEventSource.prototype;
     window.EventSource.CONNECTING = OriginalEventSource.CONNECTING;
