@@ -6,8 +6,17 @@ import org.springframework.ai.chat.memory.repository.jdbc.JdbcChatMemoryReposito
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import javax.sql.DataSource;
+
 @Configuration
 public class ChatMemoryConfig {
+
+    @Bean
+    public JdbcChatMemoryRepository chatMemoryRepository(DataSource dataSource) {
+        return JdbcChatMemoryRepository.builder()
+                .dataSource(dataSource)
+                .build();
+    }
 
     @Bean
     public ChatMemory chatMemory(JdbcChatMemoryRepository chatMemoryRepository) {

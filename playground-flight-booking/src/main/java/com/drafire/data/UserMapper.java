@@ -16,29 +16,13 @@
 
 package com.drafire.data;
 
-import java.util.ArrayList;
-import java.util.List;
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
 
-public class BookingData {
+@Mapper
+public interface UserMapper {
 
-	private List<Customer> customers = new ArrayList<>();
+	User findByUsername(@Param("username") String username);
 
-	private List<Booking> bookings = new ArrayList<>();
-
-	public List<Customer> getCustomers() {
-		return customers;
-	}
-
-	public void setCustomers(List<Customer> customers) {
-		this.customers = customers;
-	}
-
-	public List<Booking> getBookings() {
-		return bookings;
-	}
-
-	public void setBookings(List<Booking> bookings) {
-		this.bookings = bookings;
-	}
-
+	int insertUser(User user);
 }

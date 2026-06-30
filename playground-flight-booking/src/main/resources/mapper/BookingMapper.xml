@@ -44,4 +44,9 @@
         VALUES (#{bookingNumber}, #{date}, #{bookingTo}, #{customer.name}, #{from}, #{to}, #{bookingStatus}, #{bookingClass})
     </insert>
 
+    <select id="findAll" resultMap="bookingResultMap">
+        SELECT booking_number, date, booking_to, customer_name, origin, destination, booking_status, booking_class
+        FROM booking
+    </select>
+
 </mapper>

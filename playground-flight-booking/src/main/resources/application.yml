@@ -2,6 +2,10 @@
 server:
   port: 9000
 
+jwt:
+  secret: ${JWT_SECRET:my-secret-key-for-jwt-at-least-256-bits-long!!}
+  expiration: 86400000
+
 spring:
   threads:
     virtual:
@@ -42,6 +46,9 @@ spring:
     init:
       mode: always
       schema-locations: classpath:sql/schema.sql
+  security:
+    user:
+      password: not-used
 springdoc:
   api-docs:
     path: /v3/api-docs
@@ -69,3 +76,8 @@ mybatis:
   type-aliases-package: com.drafire.data
   configuration:
     map-underscore-to-camel-case: true
+
+logging:
+  level:
+    com.alibaba.cloud.ai.dashscope: DEBUG
+    org.springframework.web.client: DEBUG

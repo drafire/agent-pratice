@@ -28,7 +28,7 @@ import org.springframework.web.bind.annotation.ResponseBody;
 import java.util.List;
 
 @Controller
-@RequestMapping("/booking")
+@RequestMapping()
 public class BookingController {
 
     private final FlightBookingService flightBookingService;
@@ -39,8 +39,16 @@ public class BookingController {
 
     @GetMapping("/api/queryBooking")
     @ResponseBody
-    public Booking getBookings(String bookingNumber, String name) {
+    public Booking queryBooking(String bookingNumber, String name) {
         return flightBookingService.getBooking(bookingNumber, name);
     }
+
+
+    @GetMapping("/api/bookings")
+    @ResponseBody
+    public List<Booking> getBookings() {
+        return flightBookingService.findAll();
+    }
+
 
 }

@@ -43,6 +43,7 @@ public class CustomerSupportAssistant {
                 .system(promptSystemSpec -> promptSystemSpec.param("current_date", LocalDate.now().toString()))
                 .advisors(advisorSpec -> advisorSpec.param(CONVERSATION_ID, chatId)
                         .param(TOP_K, 100))
+                .advisors(new SimpleLoggerAdvisor())
                 .user(userMessage)
                 .stream().content();
     }

@@ -6,6 +6,7 @@ import com.drafire.data.BookingStatus;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
+import java.util.List;
 
 @Service
 public class FlightBookingService {
@@ -52,5 +53,9 @@ public class FlightBookingService {
         if (updated == 0) {
             throw new IllegalStateException("Failed to cancel booking: " + bookingNumber);
         }
+    }
+
+    public List<Booking> findAll() {
+        return bookingMapper.findAll();
     }
 }
