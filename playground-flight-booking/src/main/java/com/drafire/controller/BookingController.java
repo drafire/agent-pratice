@@ -19,7 +19,6 @@ package com.drafire.controller;
 
 import com.drafire.data.Booking;
 import com.drafire.serivce.FlightBookingService;
-import com.drafire.tools.BookingTools;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;

@@ -33,6 +33,11 @@ spring:
         index-type: hnsw
         distance-type: cosine_distance
         initialize-schema: true  # 开启自动建表
+    alibaba:
+      toolcalling:
+        amap:
+          enabled: true
+          api-key: ${AMAP_API_KEY}
   datasource:
     # MySQL 主数据源，用于 chat memory
     driver-class-name: com.mysql.cj.jdbc.Driver

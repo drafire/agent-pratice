@@ -31,7 +31,7 @@ public class CustomerSupportAssistant {
                     .defaultAdvisors(PromptChatMemoryAdvisor.builder(chatMemory).build(),
                             QuestionAnswerAdvisor.builder(vectorStore).build(),
                             new SimpleLoggerAdvisor())
-                    .defaultToolNames("queryFlightBookingDetails", "modifyFlightBooking", "cancelFlightBooking")
+                    .defaultToolNames("queryFlightBookingDetails", "modifyFlightBooking", "cancelFlightBooking", "getWeatherByCity")
                     .build();
         } catch (IOException e) {
             throw new RuntimeException("无法加载系统提示词文件: prompts/flight-assistant.st", e);
