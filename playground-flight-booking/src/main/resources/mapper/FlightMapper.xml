@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.drafire.data.FlightMapper">
+
+    <resultMap id="flightResultMap" type="com.drafire.data.Flight">
+        <id property="id" column="id"/>
+        <result property="flightNumber" column="flight_number"/>
+        <result property="airline" column="airline"/>
+        <result property="departureCity" column="departure_city"/>
+        <result property="arrivalCity" column="arrival_city"/>
+        <result property="departureAirport" column="departure_airport"/>
+        <result property="arrivalAirport" column="arrival_airport"/>
+        <result property="departureTime" column="departure_time"/>
+        <result property="arrivalTime" column="arrival_time"/>
+        <result property="duration" column="duration"/>
+        <result property="aircraftType" column="aircraft_type"/>
+        <result property="price" column="price"/>
+        <result property="availableSeats" column="available_seats"/>
+        <result property="flightDate" column="flight_date"/>
+    </resultMap>
+
+    <select id="findByDepartureCityAndArrivalCity" resultMap="flightResultMap">
+        SELECT id, flight_number, airline, departure_city, arrival_city,
+               departure_airport, arrival_airport, departure_time, arrival_time,
+               duration, aircraft_type, price, available_seats, flight_date
+        FROM flights
+        WHERE departure_city = #{departureCity}
+          AND arrival_city = #{arrivalCity}
+        ORDER BY flight_date, departure_time
+    </select>
+
+    <select id="findByFlightNumberAndDate" resultMap="flightResultMap">
+        SELECT id, flight_number, airline, departure_city, arrival_city,
+               departure_airport, arrival_airport, departure_time, arrival_time,
+               duration, aircraft_type, price, available_seats, flight_date
+        FROM flights
+        WHERE flight_number = #{flightNumber}
+          AND flight_date = #{flightDate}
+    </select>
+
+    <insert id="insertFlight" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO flights (flight_number, airline, departure_city, arrival_city,
+                             departure_airport, arrival_airport, departure_time, arrival_time,
+                             duration, aircraft_type, price, available_seats, flight_date)
+        VALUES (#{flightNumber}, #{airline}, #{departureCity}, #{arrivalCity},
+                #{departureAirport}, #{arrivalAirport}, #{departureTime}, #{arrivalTime},
+                #{duration}, #{aircraftType}, #{price}, #{availableSeats}, #{flightDate})
+    </insert>
+
+    <insert id="insertBatch">
+        INSERT INTO flights (flight_number, airline, departure_city, arrival_city,
+                             departure_airport, arrival_airport, departure_time, arrival_time,
+                             duration, aircraft_type, price, available_seats, flight_date)
+        VALUES
+        <foreach collection="flights" item="flight" separator=",">
+            (#{flight.flightNumber}, #{flight.airline}, #{flight.departureCity}, #{flight.arrivalCity},
+             #{flight.departureAirport}, #{flight.arrivalAirport}, #{flight.departureTime}, #{flight.arrivalTime},
+             #{flight.duration}, #{flight.aircraftType}, #{flight.price}, #{flight.availableSeats}, #{flight.flightDate})
+        </foreach>
+    </insert>
+
+    <select id="countAll" resultType="int">
+        SELECT COUNT(*) FROM flights
+    </select>
+
+    <select id="findAll" resultMap="flightResultMap">
+        SELECT id, flight_number, airline, departure_city, arrival_city,
+               departure_airport, arrival_airport, departure_time, arrival_time,
+               duration, aircraft_type, price, available_seats, flight_date
+        FROM flights
+        ORDER BY flight_date, departure_time
+    </select>
+
+</mapper>

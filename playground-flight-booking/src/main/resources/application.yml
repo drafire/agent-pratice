@@ -19,6 +19,10 @@ spring:
   ai:
     dashscope:
       api-key: ${DASH_SCOPE_API_KEY}
+      chat:
+        options:
+          model: qwen-max
+          temperature: 0.3
       # 添加嵌入模型配置
       embedding:
         model: text-embedding-v3  # 使用通义千文的嵌入模型
@@ -37,7 +41,7 @@ spring:
       toolcalling:
         amap:
           enabled: true
-          api-key: ${AMAP_API_KEY}
+          api-key: 'test'
   datasource:
     # MySQL 主数据源，用于 chat memory
     driver-class-name: com.mysql.cj.jdbc.Driver

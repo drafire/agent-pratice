@@ -18,10 +18,9 @@ public class WeatherService {
     private final RestClient restClient;
     private final String apiKey;
 
-    public WeatherService(RestClient.Builder restClientBuilder,
-                          @Value("${spring.ai.alibaba.toolcalling.amap.api-key}") String apiKey) {
+    public WeatherService(@Value("${spring.ai.alibaba.toolcalling.amap.api-key}") String apiKey) {
         this.apiKey = apiKey;
-        this.restClient = restClientBuilder
+        this.restClient = RestClient.builder()
                 .baseUrl("https://restapi.amap.com")
                 .build();
     }
@@ -55,7 +54,7 @@ public class WeatherService {
                     + live.winddirection + "风" + live.windpower + "级，湿度" + live.humidity + "%";
         } catch (Exception e) {
             logger.error("查询天气失败: {}", e.getMessage());
-            return "查询" + city + "的天气失败：" + e.getMessage();
+            return "暂时无法查询" + city + "的天气，请稍后再试。";
         }
     }
 
@@ -92,7 +91,7 @@ public class WeatherService {
             return sb.toString();
         } catch (Exception e) {
             logger.error("查询天气预报失败: {}", e.getMessage());
-            return "查询" + city + "的天气预报失败：" + e.getMessage();
+            return "暂时无法查询" + city + "的天气预报，请稍后再试。";
         }
     }
 

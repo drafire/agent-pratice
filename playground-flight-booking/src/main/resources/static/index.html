@@ -8,8 +8,242 @@
   <script src="/auth-bridge.js"></script>
   <script type="module" crossorigin src="/assets/index-ML2E6Jvh.js"></script>
   <link rel="stylesheet" crossorigin href="/assets/index-qWDsEEr7.css">
+  <style>
+    .chat-body {
+      position: relative;
+    }
+    .typing-indicator {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 14px 24px;
+      color: #666;
+      font-size: 14px;
+      background: rgba(255,255,255,0.92);
+      border-radius: 12px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+      z-index: 10;
+      opacity: 1;
+      transition: opacity 0.25s ease-out, transform 0.25s ease-out;
+      pointer-events: none;
+    }
+    .typing-indicator.hidden {
+      opacity: 0;
+      transform: translate(-50%, -50%) scale(0.9);
+    }
+    .typing-indicator .dot-container {
+      display: inline-flex;
+      align-items: center;
+      margin-left: 6px;
+    }
+    .typing-indicator .dot {
+      width: 7px;
+      height: 7px;
+      margin: 0 3px;
+      background: #1677ff;
+      border-radius: 50%;
+      animation: typingBounce 1.4s infinite ease-in-out both;
+    }
+    .typing-indicator .dot:nth-child(1) { animation-delay: 0s; }
+    .typing-indicator .dot:nth-child(2) { animation-delay: 0.2s; }
+    .typing-indicator .dot:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes typingBounce {
+      0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+      40% { transform: scale(1); opacity: 1; }
+    }
+  </style>
 </head>
 <body style="background: #F4F5F7;">
 <div id="app"></div>
+<script>
+(function() {
+  var loadingEl = null;
+  var observer = null;
+  var loadingTimeout = null;
+  var pollTimer = null;
+  var lastBubbleCount = 0;
+  var loadingStarted = false;
+
+  function createLoadingIndicator() {
+    if (loadingEl) return;
+    loadingEl = document.createElement('div');
+    loadingEl.className = 'typing-indicator';
+    loadingEl.innerHTML = '正在查询<span class="dot-container"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>';
+    loadingEl.setAttribute('data-loading', 'true');
+  }
+
+  function showLoading() {
+    createLoadingIndicator();
+    loadingEl.classList.remove('hidden');
+    if (loadingEl.parentNode) return;
+    var chatBody = document.querySelector('.chat-body');
+    if (chatBody) {
+      chatBody.appendChild(loadingEl);
+    }
+    loadingStarted = true;
+    clearTimeout(loadingTimeout);
+    loadingTimeout = setTimeout(hideLoading, 60000);
+  }
+
+  function hideLoading() {
+    clearTimeout(loadingTimeout);
+    loadingStarted = false;
+    if (loadingEl && loadingEl.parentNode && !loadingEl.classList.contains('hidden')) {
+      loadingEl.classList.add('hidden');
+      setTimeout(function() {
+        if (loadingEl && loadingEl.parentNode) {
+          loadingEl.parentNode.removeChild(loadingEl);
+        }
+      }, 300);
+    }
+  }
+
+  function getBubbles() {
+    return document.querySelectorAll('.chat-body .ant-bubble');
+  }
+
+  function refreshState() {
+    var bubbles = getBubbles();
+    var count = bubbles.length;
+
+    if (loadingEl && loadingEl.parentNode) {
+      if (count > lastBubbleCount) {
+        lastBubbleCount = count;
+        return;
+      }
+      var lastBubble = bubbles[count - 1];
+      if (lastBubble) {
+        var text = (lastBubble.textContent || '').replace(/\s/g, '');
+        if (text.length > 0 && count >= lastBubbleCount) {
+          hideLoading();
+        }
+      }
+    } else {
+      if (count > lastBubbleCount && loadingStarted === false) {
+        showLoading();
+      }
+      lastBubbleCount = count;
+    }
+  }
+
+  function startPolling() {
+    if (pollTimer) return;
+    pollTimer = setInterval(function() {
+      if (loadingEl && loadingEl.parentNode) {
+        var bubbles = getBubbles();
+        var count = bubbles.length;
+        if (count > 0) {
+          var lastBubble = bubbles[count - 1];
+          if (lastBubble) {
+            var text = (lastBubble.textContent || '').replace(/\s/g, '');
+            if (text.length > 0) {
+              hideLoading();
+            }
+          }
+        }
+      }
+      renderTables();
+    }, 1000);
+  }
+
+  function renderTables() {
+    var bubbles = getBubbles();
+    for (var i = 0; i < bubbles.length; i++) {
+      var bubble = bubbles[i];
+      if (bubble.getAttribute('data-table-rendered')) continue;
+      var contentEl = bubble.querySelector('.ant-bubble-content');
+      if (!contentEl) continue;
+      var text = contentEl.textContent || '';
+      if (text.indexOf('|') === -1) continue;
+
+      var lines = text.split('\n');
+      var tableLines = [];
+      var inTable = false;
+      var tableStart = -1;
+      for (var j = 0; j < lines.length; j++) {
+        var line = lines[j].trim();
+        if (line.indexOf('|') === 0 || (line.indexOf('|') > 0 && line.indexOf('|') < line.length - 1)) {
+          if (!inTable) { inTable = true; tableStart = j; }
+          tableLines.push(line);
+        } else {
+          if (inTable && tableLines.length >= 2) break;
+          if (inTable) { inTable = false; tableLines = []; }
+        }
+      }
+
+      if (tableLines.length < 2) continue;
+
+      var headerLine = tableLines[0];
+      var separatorLine = tableLines[1];
+      if (separatorLine.replace(/[|\-:\s]/g, '').length > 0) continue;
+
+      var headers = headerLine.split('|').filter(function(h) { return h.trim().length > 0; }).map(function(h) { return h.trim(); });
+      if (headers.length === 0) continue;
+
+      var dataLines = tableLines.slice(2);
+      var rows = [];
+      for (var k = 0; k < dataLines.length; k++) {
+        var cells = dataLines[k].split('|').filter(function(c) { return c.trim().length > 0; }).map(function(c) { return c.trim(); });
+        if (cells.length >= headers.length) rows.push(cells);
+      }
+      if (rows.length === 0) continue;
+
+      var html = '<table style="width:100%;border-collapse:collapse;margin:8px 0;font-size:13px;">';
+      html += '<thead><tr style="background:#f0f5ff;">';
+      for (var h = 0; h < headers.length; h++) {
+        html += '<th style="padding:8px 10px;border:1px solid #d9d9d9;text-align:left;font-weight:600;">' + headers[h] + '</th>';
+      }
+      html += '</tr></thead><tbody>';
+      for (var r = 0; r < rows.length; r++) {
+        var bg = r % 2 === 0 ? '#fff' : '#fafafa';
+        html += '<tr style="background:' + bg + ';">';
+        for (var c = 0; c < headers.length; c++) {
+          html += '<td style="padding:6px 10px;border:1px solid #e8e8e8;">' + (rows[r][c] || '') + '</td>';
+        }
+        html += '</tr>';
+      }
+      html += '</tbody></table>';
+
+      var before = text.substring(0, text.indexOf(tableLines[0]));
+      var after = text.substring(text.indexOf(tableLines[tableLines.length - 1]) + tableLines[tableLines.length - 1].length);
+
+      contentEl.innerHTML = before + html + after;
+      bubble.setAttribute('data-table-rendered', 'true');
+    }
+  }
+
+  function startObserving() {
+    if (observer) return;
+    observer = new MutationObserver(function() {
+      refreshState();
+      renderTables();
+      var chatBody = document.querySelector('.chat-body');
+      if (chatBody && loadingEl && loadingEl.parentNode) {
+        chatBody.scrollTop = chatBody.scrollHeight;
+      }
+    });
+  }
+
+  function tryInit() {
+    var chatBody = document.querySelector('.chat-body');
+    if (chatBody) {
+      startObserving();
+      observer.observe(chatBody, { childList: true, subtree: true, characterData: true });
+      lastBubbleCount = getBubbles().length;
+      startPolling();
+    } else {
+      setTimeout(tryInit, 500);
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    setTimeout(tryInit, 800);
+  });
+})();
+</script>
 </body>
 </html>

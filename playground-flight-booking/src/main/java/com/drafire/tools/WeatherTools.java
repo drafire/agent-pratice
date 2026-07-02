@@ -25,6 +25,7 @@ public class WeatherTools {
 
     @Bean("getWeatherByCity")
     @Description("根据城市获取当地的天气，days=0表示查询当前天气，days>0表示查询未来N天预报")
+    @ToolFunction
     public Function<WeatherRequest, String> getWeatherByCity() {
         return weatherRequest -> {
             logger.info("工具调用: getWeatherByCity, city={}, days={}", weatherRequest.city, weatherRequest.days);
