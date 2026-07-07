@@ -53,14 +53,23 @@ public class ResponseGuardAdvisor implements CallAdvisor, StreamAdvisor {
         return guardResponse(response);
     }
 
+    /**
+     * 过滤流式响应中的敏感字样
+     *
+     **/
     @Override
     public Flux<ChatClientResponse> adviseStream(ChatClientRequest chatClientRequest,
             StreamAdvisorChain streamAdvisorChain) {
         return streamAdvisorChain.nextStream(chatClientRequest)
-                .filter(this::shouldForward)
+                .filter(this::shouldForward)  // 过滤掉非工具调用响应
                 .map(this::guardResponse);
     }
 
+    /**
+    * 如果不是工具调用，就直接过滤掉这个响应
+     * @param response
+     * @return
+     */
     private boolean shouldForward(ChatClientResponse response) {
         if (response.chatResponse() == null) {
             return true;
@@ -75,6 +84,11 @@ public class ResponseGuardAdvisor implements CallAdvisor, StreamAdvisor {
         return true;
     }
 
+    /**
+     * 把响应过滤掉敏感字样，重新组装一次
+     * @param response
+     * @return
+     */
     private ChatClientResponse guardResponse(ChatClientResponse response) {
         if (response.chatResponse() == null) {
             return response;
@@ -95,6 +109,11 @@ public class ResponseGuardAdvisor implements CallAdvisor, StreamAdvisor {
                 .build();
     }
 
+    /**
+      过滤敏感字样
+     * @param generation
+     * @return
+     */
     private Generation guardGeneration(Generation generation) {
         AssistantMessage assistantMessage = generation.getOutput();
         String originalText = assistantMessage.getText();

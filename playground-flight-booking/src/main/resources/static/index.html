@@ -66,7 +66,7 @@
   var loadingTimeout = null;
   var pollTimer = null;
   var lastBubbleCount = 0;
-  var loadingStarted = false;
+  var suppressing = false;
 
   function createLoadingIndicator() {
     if (loadingEl) return;
@@ -80,24 +80,24 @@
     createLoadingIndicator();
     loadingEl.classList.remove('hidden');
     if (loadingEl.parentNode) return;
+    suppressing = true;
     var chatBody = document.querySelector('.chat-body');
-    if (chatBody) {
-      chatBody.appendChild(loadingEl);
-    }
-    loadingStarted = true;
+    if (chatBody) chatBody.appendChild(loadingEl);
+    suppressing = false;
     clearTimeout(loadingTimeout);
     loadingTimeout = setTimeout(hideLoading, 60000);
   }
 
   function hideLoading() {
     clearTimeout(loadingTimeout);
-    loadingStarted = false;
     if (loadingEl && loadingEl.parentNode && !loadingEl.classList.contains('hidden')) {
       loadingEl.classList.add('hidden');
       setTimeout(function() {
+        suppressing = true;
         if (loadingEl && loadingEl.parentNode) {
           loadingEl.parentNode.removeChild(loadingEl);
         }
+        suppressing = false;
       }, 300);
     }
   }
@@ -106,27 +106,12 @@
     return document.querySelectorAll('.chat-body .ant-bubble');
   }
 
-  function refreshState() {
-    var bubbles = getBubbles();
-    var count = bubbles.length;
-
-    if (loadingEl && loadingEl.parentNode) {
-      if (count > lastBubbleCount) {
-        lastBubbleCount = count;
-        return;
-      }
-      var lastBubble = bubbles[count - 1];
-      if (lastBubble) {
-        var text = (lastBubble.textContent || '').replace(/\s/g, '');
-        if (text.length > 0 && count >= lastBubbleCount) {
-          hideLoading();
-        }
-      }
-    } else {
-      if (count > lastBubbleCount && loadingStarted === false) {
-        showLoading();
-      }
+  function onBubbleChange() {
+    if (suppressing) return;
+    var count = getBubbles().length;
+    if (count > lastBubbleCount) {
       lastBubbleCount = count;
+      showLoading();
     }
   }
 
@@ -135,14 +120,11 @@
     pollTimer = setInterval(function() {
       if (loadingEl && loadingEl.parentNode) {
         var bubbles = getBubbles();
-        var count = bubbles.length;
-        if (count > 0) {
-          var lastBubble = bubbles[count - 1];
+        if (bubbles.length > 0) {
+          var lastBubble = bubbles[bubbles.length - 1];
           if (lastBubble) {
             var text = (lastBubble.textContent || '').replace(/\s/g, '');
-            if (text.length > 0) {
-              hideLoading();
-            }
+            if (text.length > 0) hideLoading();
           }
         }
       }
@@ -219,7 +201,7 @@
   function startObserving() {
     if (observer) return;
     observer = new MutationObserver(function() {
-      refreshState();
+      onBubbleChange();
       renderTables();
       var chatBody = document.querySelector('.chat-body');
       if (chatBody && loadingEl && loadingEl.parentNode) {
