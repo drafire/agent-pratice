@@ -39,9 +39,10 @@ spring:
         initialize-schema: true  # 开启自动建表
     alibaba:
       toolcalling:
-        amap:
+        hefeng:
           enabled: true
-          api-key: 'test'
+          api-key: ${HE_FENG_API_KEY}
+          base-url: ${HE_FENG_BASE_URL}
   datasource:
     # MySQL 主数据源，用于 chat memory
     driver-class-name: com.mysql.cj.jdbc.Driver

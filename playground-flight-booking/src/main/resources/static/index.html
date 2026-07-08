@@ -9,41 +9,25 @@
   <script type="module" crossorigin src="/assets/index-ML2E6Jvh.js"></script>
   <link rel="stylesheet" crossorigin href="/assets/index-qWDsEEr7.css">
   <style>
-    .chat-body {
-      position: relative;
-    }
     .typing-indicator {
       position: absolute;
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 14px 24px;
-      color: #666;
-      font-size: 14px;
-      background: rgba(255,255,255,0.92);
-      border-radius: 12px;
-      box-shadow: 0 2px 12px rgba(0,0,0,0.08);
-      z-index: 10;
-      opacity: 1;
-      transition: opacity 0.25s ease-out, transform 0.25s ease-out;
-      pointer-events: none;
-    }
-    .typing-indicator.hidden {
-      opacity: 0;
-      transform: translate(-50%, -50%) scale(0.9);
+      padding: 12px 24px;
+      background: #fff;
+      border-radius: 8px;
+      border: 1px solid #e8e8e8;
+      white-space: nowrap;
     }
     .typing-indicator .dot-container {
-      display: inline-flex;
+      display: flex;
       align-items: center;
-      margin-left: 6px;
+      gap: 6px;
     }
     .typing-indicator .dot {
-      width: 7px;
-      height: 7px;
-      margin: 0 3px;
+      width: 8px;
+      height: 8px;
       background: #1677ff;
       border-radius: 50%;
       animation: typingBounce 1.4s infinite ease-in-out both;
@@ -52,7 +36,7 @@
     .typing-indicator .dot:nth-child(2) { animation-delay: 0.2s; }
     .typing-indicator .dot:nth-child(3) { animation-delay: 0.4s; }
     @keyframes typingBounce {
-      0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+      0%, 80%, 100% { transform: scale(0.5); opacity: 0.3; }
       40% { transform: scale(1); opacity: 1; }
     }
   </style>
@@ -62,169 +46,122 @@
 <script>
 (function() {
   var loadingEl = null;
-  var observer = null;
   var loadingTimeout = null;
-  var pollTimer = null;
-  var lastBubbleCount = 0;
-  var suppressing = false;
+  var activeStreams = 0;
 
-  function createLoadingIndicator() {
-    if (loadingEl) return;
-    loadingEl = document.createElement('div');
-    loadingEl.className = 'typing-indicator';
-    loadingEl.innerHTML = '正在查询<span class="dot-container"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>';
-    loadingEl.setAttribute('data-loading', 'true');
+  function getChatBody() {
+    return document.querySelector('.ant-card-body');
+  }
+
+  function createLoadingBubble() {
+    var el = document.createElement('div');
+    el.className = 'typing-indicator';
+    el.innerHTML = '<span class="dot-container"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>';
+    return el;
   }
 
   function showLoading() {
-    createLoadingIndicator();
-    loadingEl.classList.remove('hidden');
-    if (loadingEl.parentNode) return;
-    suppressing = true;
-    var chatBody = document.querySelector('.chat-body');
-    if (chatBody) chatBody.appendChild(loadingEl);
-    suppressing = false;
+    var container = getChatBody();
+    if (!container) {
+      setTimeout(showLoading, 100);
+      return;
+    }
+    removeLoading();
+    container.style.position = 'relative';
+    loadingEl = createLoadingBubble();
+    container.appendChild(loadingEl);
     clearTimeout(loadingTimeout);
     loadingTimeout = setTimeout(hideLoading, 60000);
   }
 
+  function removeLoading() {
+    if (loadingEl && loadingEl.parentNode) {
+      loadingEl.parentNode.removeChild(loadingEl);
+    }
+    loadingEl = null;
+  }
+
   function hideLoading() {
+    if (activeStreams > 0) return;
     clearTimeout(loadingTimeout);
-    if (loadingEl && loadingEl.parentNode && !loadingEl.classList.contains('hidden')) {
-      loadingEl.classList.add('hidden');
-      setTimeout(function() {
-        suppressing = true;
-        if (loadingEl && loadingEl.parentNode) {
-          loadingEl.parentNode.removeChild(loadingEl);
-        }
-        suppressing = false;
-      }, 300);
-    }
+    removeLoading();
   }
 
-  function getBubbles() {
-    return document.querySelectorAll('.chat-body .ant-bubble');
-  }
+  var OriginalEventSource = window.EventSource;
+  window.EventSource = function(url, config) {
+    var es = new OriginalEventSource(url, config);
+    var isChatApi = url.indexOf('/api/assistant/chat') !== -1;
 
-  function onBubbleChange() {
-    if (suppressing) return;
-    var count = getBubbles().length;
-    if (count > lastBubbleCount) {
-      lastBubbleCount = count;
+    if (isChatApi) {
+      activeStreams++;
       showLoading();
-    }
-  }
 
-  function startPolling() {
-    if (pollTimer) return;
-    pollTimer = setInterval(function() {
-      if (loadingEl && loadingEl.parentNode) {
-        var bubbles = getBubbles();
-        if (bubbles.length > 0) {
-          var lastBubble = bubbles[bubbles.length - 1];
-          if (lastBubble) {
-            var text = (lastBubble.textContent || '').replace(/\s/g, '');
-            if (text.length > 0) hideLoading();
-          }
+      var originalAddEventListener = es.addEventListener;
+      es.addEventListener = function(type, listener, options) {
+        if (type === 'message' || type === 'data') {
+          var wrappedListener = function(event) {
+            hideLoading();
+            listener.call(this, event);
+          };
+          return originalAddEventListener.call(this, type, wrappedListener, options);
         }
+        return originalAddEventListener.call(this, type, listener, options);
+      };
+
+      var originalOnmessageDescriptor = Object.getOwnPropertyDescriptor(es, 'onmessage');
+      if (originalOnmessageDescriptor && originalOnmessageDescriptor.configurable) {
+        var _onmessage = null;
+        Object.defineProperty(es, 'onmessage', {
+          get: function() { return _onmessage; },
+          set: function(fn) {
+            _onmessage = function(event) {
+              hideLoading();
+              if (fn) fn.call(this, event);
+            };
+          },
+          configurable: true
+        });
       }
-      renderTables();
-    }, 1000);
-  }
 
-  function renderTables() {
-    var bubbles = getBubbles();
-    for (var i = 0; i < bubbles.length; i++) {
-      var bubble = bubbles[i];
-      if (bubble.getAttribute('data-table-rendered')) continue;
-      var contentEl = bubble.querySelector('.ant-bubble-content');
-      if (!contentEl) continue;
-      var text = contentEl.textContent || '';
-      if (text.indexOf('|') === -1) continue;
-
-      var lines = text.split('\n');
-      var tableLines = [];
-      var inTable = false;
-      var tableStart = -1;
-      for (var j = 0; j < lines.length; j++) {
-        var line = lines[j].trim();
-        if (line.indexOf('|') === 0 || (line.indexOf('|') > 0 && line.indexOf('|') < line.length - 1)) {
-          if (!inTable) { inTable = true; tableStart = j; }
-          tableLines.push(line);
-        } else {
-          if (inTable && tableLines.length >= 2) break;
-          if (inTable) { inTable = false; tableLines = []; }
+      es.addEventListener('error', function() {
+        activeStreams--;
+        if (activeStreams <= 0) {
+          activeStreams = 0;
+          hideLoading();
         }
-      }
+      });
+    }
 
-      if (tableLines.length < 2) continue;
+    return es;
+  };
+  window.EventSource.prototype = OriginalEventSource.prototype;
+  window.EventSource.CONNECTING = OriginalEventSource.CONNECTING;
+  window.EventSource.OPEN = OriginalEventSource.OPEN;
+  window.EventSource.CLOSED = OriginalEventSource.CLOSED;
 
-      var headerLine = tableLines[0];
-      var separatorLine = tableLines[1];
-      if (separatorLine.replace(/[|\-:\s]/g, '').length > 0) continue;
+  var originalFetch = window.fetch;
+  window.fetch = function(url, options) {
+    var urlStr = typeof url === 'string' ? url : (url.url || url.toString());
+    var isChatApi = urlStr.indexOf('/api/assistant/chat') !== -1;
 
-      var headers = headerLine.split('|').filter(function(h) { return h.trim().length > 0; }).map(function(h) { return h.trim(); });
-      if (headers.length === 0) continue;
-
-      var dataLines = tableLines.slice(2);
-      var rows = [];
-      for (var k = 0; k < dataLines.length; k++) {
-        var cells = dataLines[k].split('|').filter(function(c) { return c.trim().length > 0; }).map(function(c) { return c.trim(); });
-        if (cells.length >= headers.length) rows.push(cells);
-      }
-      if (rows.length === 0) continue;
-
-      var html = '<table style="width:100%;border-collapse:collapse;margin:8px 0;font-size:13px;">';
-      html += '<thead><tr style="background:#f0f5ff;">';
-      for (var h = 0; h < headers.length; h++) {
-        html += '<th style="padding:8px 10px;border:1px solid #d9d9d9;text-align:left;font-weight:600;">' + headers[h] + '</th>';
-      }
-      html += '</tr></thead><tbody>';
-      for (var r = 0; r < rows.length; r++) {
-        var bg = r % 2 === 0 ? '#fff' : '#fafafa';
-        html += '<tr style="background:' + bg + ';">';
-        for (var c = 0; c < headers.length; c++) {
-          html += '<td style="padding:6px 10px;border:1px solid #e8e8e8;">' + (rows[r][c] || '') + '</td>';
+    if (isChatApi) {
+      activeStreams++;
+      showLoading();
+      return originalFetch.call(this, url, options).then(function(response) {
+        hideLoading();
+        return response;
+      }).catch(function(err) {
+        activeStreams--;
+        if (activeStreams <= 0) {
+          activeStreams = 0;
+          hideLoading();
         }
-        html += '</tr>';
-      }
-      html += '</tbody></table>';
-
-      var before = text.substring(0, text.indexOf(tableLines[0]));
-      var after = text.substring(text.indexOf(tableLines[tableLines.length - 1]) + tableLines[tableLines.length - 1].length);
-
-      contentEl.innerHTML = before + html + after;
-      bubble.setAttribute('data-table-rendered', 'true');
+        throw err;
+      });
     }
-  }
 
-  function startObserving() {
-    if (observer) return;
-    observer = new MutationObserver(function() {
-      onBubbleChange();
-      renderTables();
-      var chatBody = document.querySelector('.chat-body');
-      if (chatBody && loadingEl && loadingEl.parentNode) {
-        chatBody.scrollTop = chatBody.scrollHeight;
-      }
-    });
-  }
-
-  function tryInit() {
-    var chatBody = document.querySelector('.chat-body');
-    if (chatBody) {
-      startObserving();
-      observer.observe(chatBody, { childList: true, subtree: true, characterData: true });
-      lastBubbleCount = getBubbles().length;
-      startPolling();
-    } else {
-      setTimeout(tryInit, 500);
-    }
-  }
-
-  document.addEventListener('DOMContentLoaded', function() {
-    setTimeout(tryInit, 800);
-  });
+    return originalFetch.call(this, url, options);
+  };
 })();
 </script>
 </body>
