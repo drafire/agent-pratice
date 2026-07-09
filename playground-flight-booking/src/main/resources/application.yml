@@ -6,6 +6,17 @@ jwt:
   secret: ${JWT_SECRET:my-secret-key-for-jwt-at-least-256-bits-long!!}
   expiration: 86400000
 
+###################
+# 功能开关（Feature Flags）
+# 可动态控制功能启用/禁用，无需重新部署
+###################
+app:
+  feature:
+    graph-mode: true          # 是否启用 Graph 模式
+    weather-enabled: true     # 是否启用天气查询
+    input-guard-enabled: true # 是否启用输入治理（注入检测 + 超长截断）
+    output-guard-enabled: true # 是否启用输出治理（ResponseGuard 净化 + 验证）
+
 spring:
   threads:
     virtual:

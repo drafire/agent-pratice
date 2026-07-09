@@ -30,6 +30,17 @@
         ORDER BY flight_date, departure_time
     </select>
 
+    <select id="findByDepartureCityAndArrivalCityAndDate" resultMap="flightResultMap">
+        SELECT id, flight_number, airline, departure_city, arrival_city,
+               departure_airport, arrival_airport, departure_time, arrival_time,
+               duration, aircraft_type, price, available_seats, flight_date
+        FROM flights
+        WHERE departure_city = #{departureCity}
+          AND arrival_city = #{arrivalCity}
+          AND flight_date = #{flightDate}
+        ORDER BY departure_time
+    </select>
+
     <select id="findByFlightNumberAndDate" resultMap="flightResultMap">
         SELECT id, flight_number, airline, departure_city, arrival_city,
                departure_airport, arrival_airport, departure_time, arrival_time,
