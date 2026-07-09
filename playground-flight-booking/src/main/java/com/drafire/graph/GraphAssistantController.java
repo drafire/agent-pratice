@@ -32,7 +32,7 @@ public class GraphAssistantController {
             @RequestParam String chatId,
             @RequestParam String userMessage) {
 
-        Map<String, Object> input = Map.of("userInput", userMessage);
+        Map<String, Object> input = Map.of("userInput", userMessage, "chatId", chatId);
         RunnableConfig config = RunnableConfig.builder().threadId(chatId).build();
 
         Flux<NodeOutput> stream = compiledGraph.stream(input, config);

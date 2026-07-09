@@ -3,6 +3,7 @@ package com.drafire.graph.node;
 import com.alibaba.cloud.ai.graph.OverAllState;
 import com.alibaba.cloud.ai.graph.action.AsyncNodeAction;
 import com.drafire.data.Booking;
+import com.drafire.security.ActionTokenService;
 import com.drafire.serivce.FlightBookingService;
 import com.drafire.serivce.FlightSearchService;
 import com.drafire.serivce.WeatherService;
@@ -24,17 +25,20 @@ public class ExecuteActionNode implements AsyncNodeAction {
     private final WeatherService weatherService;
     private final ResponseRenderer responseRenderer;
     private final ResponseGuard responseGuard;
+    private final ActionTokenService actionTokenService;
 
     public ExecuteActionNode(FlightBookingService flightBookingService,
                              FlightSearchService flightSearchService,
                              WeatherService weatherService,
                              ResponseRenderer responseRenderer,
-                             ResponseGuard responseGuard) {
+                             ResponseGuard responseGuard,
+                             ActionTokenService actionTokenService) {
         this.flightBookingService = flightBookingService;
         this.flightSearchService = flightSearchService;
         this.weatherService = weatherService;
         this.responseRenderer = responseRenderer;
         this.responseGuard = responseGuard;
+        this.actionTokenService = actionTokenService;
     }
 
     @Override
@@ -65,47 +69,86 @@ public class ExecuteActionNode implements AsyncNodeAction {
         return responseRenderer.renderBooking(booking);
     }
 
+    /**
+     * 改签操作：不再直接执行，而是生成一次性确认链接。
+     * 用户必须点击链接并显式确认，后端才会执行写库操作。
+     */
     private String executeChangeBooking(OverAllState state) {
         String bookingNumber = state.value("bookingNumber", "");
         String customerName = state.value("customerName", "");
         String from = state.value("from", "");
         String to = state.value("to", "");
         String dateStr = state.value("date", "");
-        LocalDate date = dateStr.isEmpty() ? LocalDate.now() : LocalDate.parse(dateStr);
-        logger.info("[改签] bookingNumber={}, from={}, to={}, date={}", bookingNumber, from, to, date);
+        String chatId = state.value("chatId", "");
 
-        flightBookingService.changeBooking(bookingNumber, customerName, date, from, to);
-        return responseRenderer.renderModifySuccess(bookingNumber, from, to, date);
+        logger.info("[改签-生成确认链接] bookingNumber={}, from={}, to={}, date={}", bookingNumber, from, to, dateStr);
+
+        Booking booking = flightBookingService.getBooking(bookingNumber, customerName);
+            String token = actionTokenService.createToken(
+                    "CHANGE_BOOKING", bookingNumber, customerName, from, to, dateStr, chatId);
+
+            return """
+                    📋 改签确认
+
+                    当前订单：%s
+                    原行程：%s → %s（%s）
+                    新行程：%s → %s（%s）
+
+                    ⚠️ 请点击以下链接确认改签（10 分钟内有效）：
+                    /confirm-action.html?token=%s
+
+                    确认后将执行改签操作。""".formatted(
+                    bookingNumber,
+                    booking.getFrom(), booking.getTo(), booking.getDate(),
+                    from, to, dateStr,
+                    token);
     }
 
+    /**
+     * 取消操作：不再直接执行，而是生成一次性确认链接。
+     * 用户必须点击链接并显式确认，后端才会执行写库操作。
+     */
     private String executeCancelBooking(OverAllState state) {
         String bookingNumber = state.value("bookingNumber", "");
         String customerName = state.value("customerName", "");
-        Boolean confirmed = state.value("cancelConfirmed", false);
+        String chatId = state.value("chatId", "");
 
-        if (!confirmed) {
-            logger.info("[取消订单-HITL] 查询订单详情供确认: bookingNumber={}", bookingNumber);
-            Booking booking = flightBookingService.getBooking(bookingNumber, customerName);
+        logger.info("[取消订单-生成确认链接] bookingNumber={}", bookingNumber);
+
+        Booking booking = flightBookingService.getBooking(bookingNumber, customerName);
+            String token = actionTokenService.createToken(
+                    "CANCEL_BOOKING", bookingNumber, customerName, "", "", "", chatId);
+
             String detail = responseRenderer.renderBooking(booking);
             return """
-                    ⚠️ 请确认要取消以下订单（取消后不可恢复）：
+                    🗑️ 取消订单确认
 
                     %s
 
-                    请回复"确认取消"来执行取消操作，或回复"不取消"来放弃。""".formatted(detail);
-        } else {
-            logger.info("[取消订单-执行] 用户已确认: bookingNumber={}", bookingNumber);
-            flightBookingService.cancelBooking(bookingNumber, customerName);
-            return responseRenderer.renderCancelSuccess(bookingNumber);
-        }
+                    ⚠️ 取消后不可恢复，请点击以下链接确认（10 分钟内有效）：
+                    /confirm-action.html?token=%s
+
+                    确认后将执行取消操作。""".formatted(detail, token);
     }
 
     private String executeSearchFlights(OverAllState state) {
         String from = state.value("from", "");
         String to = state.value("to", "");
-        logger.info("[搜索航班] from={}, to={}", from, to);
+        String dateStr = state.value("date", "");
+        logger.info("[搜索航班] from={}, to={}, date={}", from, to, dateStr);
 
-        var flights = flightSearchService.queryFlightsBetweenTwoCities(from, to);
+        LocalDate date = null;
+        if (dateStr != null && !dateStr.isEmpty()) {
+            try {
+                date = LocalDate.parse(dateStr);
+            } catch (Exception e) {
+                logger.warn("[搜索航班] 日期解析失败: {}, 将不按日期过滤", dateStr);
+            }
+        }
+
+        var flights = date != null
+                ? flightSearchService.queryFlightsBetweenTwoCities(from, to, date)
+                : flightSearchService.queryFlightsBetweenTwoCities(from, to);
         return responseRenderer.renderFlightList(flights, from, to);
     }
 

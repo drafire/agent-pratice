@@ -1,5 +1,6 @@
 package com.drafire.interceptor;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -117,13 +118,19 @@ public class ResponseGuardAdvisor implements CallAdvisor, StreamAdvisor {
     private Generation guardGeneration(Generation generation) {
         AssistantMessage assistantMessage = generation.getOutput();
         String originalText = assistantMessage.getText();
+        if (originalText == null) {
+            return generation;
+        }
         String guardedText = responseGuard.sanitize(originalText);
         if (!guardedText.equals(originalText)) {
             AssistantMessage guardedMessage = AssistantMessage.builder()
                     .content(guardedText)
-                    .properties(assistantMessage.getMetadata())
-                    .media(assistantMessage.getMedia())
-                    .toolCalls(assistantMessage.getToolCalls())
+                    .properties(assistantMessage.getMetadata() != null
+                            ? assistantMessage.getMetadata() : Collections.emptyMap())
+                    .media(assistantMessage.getMedia() != null
+                            ? assistantMessage.getMedia() : Collections.emptyList())
+                    .toolCalls(assistantMessage.getToolCalls() != null
+                            ? assistantMessage.getToolCalls() : Collections.emptyList())
                     .build();
             return new Generation(guardedMessage, generation.getMetadata());
         }

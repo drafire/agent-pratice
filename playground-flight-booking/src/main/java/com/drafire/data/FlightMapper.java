@@ -12,6 +12,10 @@ public interface FlightMapper {
     List<Flight> findByDepartureCityAndArrivalCity(@Param("departureCity") String departureCity,
                                                    @Param("arrivalCity") String arrivalCity);
 
+    List<Flight> findByDepartureCityAndArrivalCityAndDate(@Param("departureCity") String departureCity,
+                                                           @Param("arrivalCity") String arrivalCity,
+                                                           @Param("flightDate") LocalDate flightDate);
+
     List<Flight> findByFlightNumberAndDate(@Param("flightNumber") String flightNumber,
                                            @Param("flightDate") LocalDate flightDate);
 

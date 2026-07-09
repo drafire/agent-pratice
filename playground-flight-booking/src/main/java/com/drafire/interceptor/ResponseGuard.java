@@ -15,6 +15,8 @@ public class ResponseGuard {
 
     private final Set<String> blocklist;
 
+    private final Pattern blocklistPattern;
+
     private static final Pattern PHONE_PATTERN = Pattern.compile(
             "\\b(1[3-9]\\d{9}|400[-.]?\\d{3}[-.]?\\d{4}|\\d{3,4}[-.]?\\d{7,8})\\b");
 
@@ -89,6 +91,12 @@ public class ResponseGuard {
         blocklist.add("实时航班信息");
         blocklist.add("调取");
         blocklist.add("重新查询");
+
+        this.blocklistPattern = Pattern.compile(
+                blocklist.stream()
+                        .map(Pattern::quote)
+                        .reduce((a, b) -> a + "|" + b)
+                        .orElse("(?!)"));
     }
 
     public String sanitize(String input) {
@@ -96,11 +104,7 @@ public class ResponseGuard {
             return input;
         }
 
-        String result = input;
-
-        for (String term : blocklist) {
-            result = result.replace(term, "");
-        }
+        String result = blocklistPattern.matcher(input).replaceAll("");
 
         result = result.replace("调用", "查询");
         result = result.replace("工具", "");

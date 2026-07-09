@@ -18,7 +18,7 @@ public class ResponseRenderer {
 
     public String renderFlightList(List<Flight> flights, String fromCity, String toCity) {
         if (flights == null || flights.isEmpty()) {
-            return "暂时没有找到" + fromCity + "到" + toCity + "的航班信息。"
+            return "您好，暂时没有找到" + fromCity + "到" + toCity + "的航班信息。"
                     + "请直接输出以上内容，不要添加任何解释、建议、替代方案或其他信息。";
         }
 
@@ -43,7 +43,7 @@ public class ResponseRenderer {
 
     public String renderBooking(Booking booking) {
         if (booking == null) {
-            return "未找到该预订信息，请确认预订号和姓名是否正确。"
+            return "您好，未找到该预订信息，请确认预订号和姓名是否正确。"
                     + "请直接输出以上内容，不要添加任何解释、建议、替代方案或其他信息。";
         }
 
@@ -63,7 +63,7 @@ public class ResponseRenderer {
     }
 
     public String renderModifySuccess(String bookingNumber, String from, String to, LocalDate newDate) {
-        return "已成功将预订" + bookingNumber + "的行程修改为" + from + "→" + to
+        return "您好，已成功将预订" + bookingNumber + "的行程修改为" + from + "→" + to
                 + "，日期" + (newDate != null ? newDate.format(DATE_FMT) : "") + "。";
     }
 
@@ -73,7 +73,7 @@ public class ResponseRenderer {
 
 
     public String renderError() {
-        return "暂时无法处理您的请求，请稍后再试。"
+        return "您好，暂时无法处理您的请求，请稍后再试。"
                 + "请直接输出以上内容，不要添加任何解释、建议、替代方案或其他信息。";
     }
 

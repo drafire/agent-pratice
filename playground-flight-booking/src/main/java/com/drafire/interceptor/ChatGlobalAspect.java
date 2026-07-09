@@ -1,15 +1,18 @@
 package com.drafire.interceptor;
 
+import com.drafire.config.FeatureFlags;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Pointcut;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
+import java.util.UUID;
 import java.util.regex.Pattern;
 
 @Aspect
@@ -22,6 +25,10 @@ public class ChatGlobalAspect {
     private static final String REJECT_MESSAGE = "抱歉，无法处理该请求。";
 
     private static final int MAX_INPUT_LENGTH = 2000;
+
+    private static final String MDC_TRACE_ID = "traceId";
+    private static final String MDC_CHAT_ID = "chatId";
+    private static final String MDC_MODE = "mode";
 
     /**
      * 提示词注入检测规则，覆盖常见的攻击手法。
@@ -114,9 +121,11 @@ public class ChatGlobalAspect {
     };
 
     private final ResponseGuard responseGuard;
+    private final FeatureFlags featureFlags;
 
-    public ChatGlobalAspect(ResponseGuard responseGuard) {
+    public ChatGlobalAspect(ResponseGuard responseGuard, FeatureFlags featureFlags) {
         this.responseGuard = responseGuard;
+        this.featureFlags = featureFlags;
     }
 
     @Pointcut("execution(* com.drafire.serivce.CustomerSupportAssistant.chat(..))")
@@ -141,36 +150,51 @@ public class ChatGlobalAspect {
         String chatId = (String) args[0];
         String userMessage = (String) args[1];
 
-        InputGuardResult guardResult = guardInput(chatId, userMessage);
-        if (guardResult.blocked()) {
-            logger.warn("输入被拦截 [{}]: chatId={}, reason={}", mode, chatId, guardResult.reason());
-            if ("Graph".equals(mode)) {
-                return Flux.just(ServerSentEvent.<String>builder().data(REJECT_MESSAGE).build());
-            }
-            return Flux.just(REJECT_MESSAGE);
-        }
+        // 注入 traceId 到 MDC，全链路日志可追踪
+        String traceId = UUID.randomUUID().toString().substring(0, 8);
+        MDC.put(MDC_TRACE_ID, traceId);
+        MDC.put(MDC_CHAT_ID, chatId);
+        MDC.put(MDC_MODE, mode);
 
-        args[1] = guardResult.sanitizedInput();
-
-        logger.info("Chat 请求 [{}]: chatId={}, message={}", mode, chatId, args[1]);
-
-        long start = System.currentTimeMillis();
         try {
-            Object rawResult = pjp.proceed();
-
-            if (rawResult instanceof Flux<?> flux) {
-                if ("Graph".equals(mode)) {
-                    return attachGraphHooks(chatId, start, (Flux<ServerSentEvent<String>>) flux);
-                } else {
-                    return attachFunctionCallingHooks(chatId, start, (Flux<String>) flux);
+            // 输入治理（可通过 feature flags 动态关闭）
+            if (featureFlags.isInputGuardEnabled()) {
+                InputGuardResult guardResult = guardInput(chatId, userMessage);
+                if (guardResult.blocked()) {
+                    logger.warn("输入被拦截: reason={}", guardResult.reason());
+                    if ("Graph".equals(mode)) {
+                        return Flux.just(ServerSentEvent.<String>builder().data(REJECT_MESSAGE).build());
+                    }
+                    return Flux.just(REJECT_MESSAGE);
                 }
+                args[1] = guardResult.sanitizedInput();
             }
 
-            return rawResult;
-        } catch (Throwable e) {
-            long elapsed = System.currentTimeMillis() - start;
-            logger.error("Chat 同步异常 [{}]: chatId={}, 耗时={}ms, error={}", mode, chatId, elapsed, e.getMessage());
-            return Flux.just(SAFE_FALLBACK);
+            logger.info("Chat 请求: message={}", args[1]);
+
+            long start = System.currentTimeMillis();
+            try {
+                Object rawResult = pjp.proceed();
+
+                if (rawResult instanceof Flux<?> flux) {
+                    if ("Graph".equals(mode)) {
+                        return attachGraphHooks(chatId, start, traceId, (Flux<ServerSentEvent<String>>) flux);
+                    } else {
+                        return attachFunctionCallingHooks(chatId, start, traceId, (Flux<String>) flux);
+                    }
+                }
+
+                return rawResult;
+            } catch (Throwable e) {
+                long elapsed = System.currentTimeMillis() - start;
+                logger.error("Chat 同步异常: 耗时={}ms, error={}", elapsed, e.getMessage());
+                return Flux.just(SAFE_FALLBACK);
+            }
+        } finally {
+            // 清理 MDC，防止线程池复用导致数据错乱
+            MDC.remove(MDC_TRACE_ID);
+            MDC.remove(MDC_CHAT_ID);
+            MDC.remove(MDC_MODE);
         }
     }
 
@@ -216,25 +240,39 @@ public class ChatGlobalAspect {
         }
     }
 
-    private Flux<String> attachFunctionCallingHooks(String chatId, long start, Flux<String> result) {
-        StringBuilder fullResponse = new StringBuilder();
+    private Flux<String> attachFunctionCallingHooks(String chatId, long start, String traceId, Flux<String> result) {
+        StringBuffer fullResponse = new StringBuffer();
 
         return result
                 .doOnNext(chunk -> fullResponse.append(chunk))
                 .doOnComplete(() -> {
-                    long elapsed = System.currentTimeMillis() - start;
-                    validateAndLog(chatId, elapsed, fullResponse.toString());
+                    MDC.put(MDC_TRACE_ID, traceId);
+                    MDC.put(MDC_CHAT_ID, chatId);
+                    try {
+                        long elapsed = System.currentTimeMillis() - start;
+                        validateAndLog(elapsed, fullResponse.toString());
+                    } finally {
+                        MDC.remove(MDC_TRACE_ID);
+                        MDC.remove(MDC_CHAT_ID);
+                    }
                 })
                 .doOnError(error -> {
-                    long elapsed = System.currentTimeMillis() - start;
-                    logger.error("Chat 异常: chatId={}, 耗时={}ms, error={}", chatId, elapsed, error.getMessage());
+                    MDC.put(MDC_TRACE_ID, traceId);
+                    MDC.put(MDC_CHAT_ID, chatId);
+                    try {
+                        long elapsed = System.currentTimeMillis() - start;
+                        logger.error("Chat 异常: 耗时={}ms, error={}", elapsed, error.getMessage());
+                    } finally {
+                        MDC.remove(MDC_TRACE_ID);
+                        MDC.remove(MDC_CHAT_ID);
+                    }
                 })
                 .onErrorResume(error -> Flux.just(SAFE_FALLBACK));
     }
 
-    private Flux<ServerSentEvent<String>> attachGraphHooks(String chatId, long start,
+    private Flux<ServerSentEvent<String>> attachGraphHooks(String chatId, long start, String traceId,
                                                             Flux<ServerSentEvent<String>> result) {
-        StringBuilder fullResponse = new StringBuilder();
+        StringBuffer fullResponse = new StringBuffer();
 
         return result
                 .doOnNext(event -> {
@@ -243,26 +281,40 @@ public class ChatGlobalAspect {
                     }
                 })
                 .doOnComplete(() -> {
-                    long elapsed = System.currentTimeMillis() - start;
-                    validateAndLog(chatId, elapsed, fullResponse.toString());
+                    MDC.put(MDC_TRACE_ID, traceId);
+                    MDC.put(MDC_CHAT_ID, chatId);
+                    try {
+                        long elapsed = System.currentTimeMillis() - start;
+                        validateAndLog(elapsed, fullResponse.toString());
+                    } finally {
+                        MDC.remove(MDC_TRACE_ID);
+                        MDC.remove(MDC_CHAT_ID);
+                    }
                 })
                 .doOnError(error -> {
-                    long elapsed = System.currentTimeMillis() - start;
-                    logger.error("Graph Chat 异常: chatId={}, 耗时={}ms, error={}", chatId, elapsed, error.getMessage());
+                    MDC.put(MDC_TRACE_ID, traceId);
+                    MDC.put(MDC_CHAT_ID, chatId);
+                    try {
+                        long elapsed = System.currentTimeMillis() - start;
+                        logger.error("Graph Chat 异常: 耗时={}ms, error={}", elapsed, error.getMessage());
+                    } finally {
+                        MDC.remove(MDC_TRACE_ID);
+                        MDC.remove(MDC_CHAT_ID);
+                    }
                 })
                 .onErrorResume(error -> Flux.just(ServerSentEvent.<String>builder()
                         .data(SAFE_FALLBACK).build()));
     }
 
-    private void validateAndLog(String chatId, long elapsed, String response) {
-        if (response != null && !response.isEmpty()) {
+    private void validateAndLog(long elapsed, String response) {
+        if (featureFlags.isOutputGuardEnabled() && response != null && !response.isEmpty()) {
             ResponseGuard.ValidationResult validation = responseGuard.validate(response);
             if (!validation.checkValid()) {
-                logger.warn("Chat 响应验证不通过: chatId={}, violations={}, originalResponse={}",
-                        chatId, validation.violations(), truncate(response, 200));
+                logger.warn("Chat 响应验证不通过: violations={}, originalResponse={}",
+                        validation.violations(), truncate(response, 200));
             }
         }
-        logger.info("Chat 完成: chatId={}, 耗时={}ms", chatId, elapsed);
+        logger.info("Chat 完成: 耗时={}ms", elapsed);
     }
 
     private String truncate(String text, int maxLength) {

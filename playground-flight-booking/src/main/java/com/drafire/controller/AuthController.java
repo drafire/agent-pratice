@@ -51,6 +51,10 @@ public class AuthController {
         String username = loginRequest.get("username");
         String password = loginRequest.get("password");
 
+        if (username == null || username.isBlank() || password == null || password.isBlank()) {
+            return ResponseEntity.status(401).body(Map.of("error", "Invalid username or password"));
+        }
+
         User user = userMapper.findByUsername(username);
         if (user == null || !passwordEncoder.matches(password, user.getPassword())) {
             return ResponseEntity.status(401).body(Map.of("error", "Invalid username or password"));

@@ -12,6 +12,7 @@ import com.drafire.graph.node.ParameterExtractorNode;
 import com.drafire.graph.node.ResponseGeneratorNode;
 import com.drafire.interceptor.ResponseGuard;
 import com.drafire.interceptor.ResponseRenderer;
+import com.drafire.security.ActionTokenService;
 import com.drafire.serivce.FlightBookingService;
 import com.drafire.serivce.FlightSearchService;
 import com.drafire.serivce.WeatherService;
@@ -35,19 +36,22 @@ public class FlightAgentGraphConfig {
     private final WeatherService weatherService;
     private final ResponseRenderer responseRenderer;
     private final ResponseGuard responseGuard;
+    private final ActionTokenService actionTokenService;
 
     public FlightAgentGraphConfig(ChatClient.Builder chatClientBuilder,
                                   FlightBookingService flightBookingService,
                                   FlightSearchService flightSearchService,
                                   WeatherService weatherService,
                                   ResponseRenderer responseRenderer,
-                                  ResponseGuard responseGuard) {
+                                  ResponseGuard responseGuard,
+                                  ActionTokenService actionTokenService) {
         this.chatClientBuilder = chatClientBuilder;
         this.flightBookingService = flightBookingService;
         this.flightSearchService = flightSearchService;
         this.weatherService = weatherService;
         this.responseRenderer = responseRenderer;
         this.responseGuard = responseGuard;
+        this.actionTokenService = actionTokenService;
     }
 
     @Bean
@@ -65,13 +69,15 @@ public class FlightAgentGraphConfig {
                 .addPatternStrategy("toolResult", new ReplaceStrategy())
                 .addPatternStrategy("reply", new ReplaceStrategy())
                 .addPatternStrategy("cancelConfirmed", new ReplaceStrategy())
+                .addPatternStrategy("chatId", new ReplaceStrategy())
                 .build();
 
         StateGraph graph = new StateGraph(keyStrategy)
                 .addNode("classify_intent", new IntentClassifierNode(chatClientBuilder))
                 .addNode("extract_params", new ParameterExtractorNode(chatClientBuilder))
                 .addNode("execute_action", new ExecuteActionNode(
-                        flightBookingService, flightSearchService, weatherService, responseRenderer, responseGuard))
+                        flightBookingService, flightSearchService, weatherService,
+                        responseRenderer, responseGuard, actionTokenService))
                 .addNode("generate_response", new ResponseGeneratorNode(chatClientBuilder, responseGuard))
 
                 .addEdge(START, "classify_intent")

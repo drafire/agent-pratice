@@ -25,6 +25,8 @@ import org.springframework.stereotype.Component;
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
+import java.util.Map;
+import java.util.UUID;
 
 @Component
 public class JwtUtil {
@@ -48,6 +50,35 @@ public class JwtUtil {
                 .expiration(expiryDate)
                 .signWith(key)
                 .compact();
+    }
+
+    /**
+     * 生成操作确认令牌（JWT），将操作详情编码进 token 自身，防篡改。
+     */
+    public String generateActionToken(Map<String, String> claims, long ttlSeconds) {
+        Date now = new Date();
+        Date expiry = new Date(now.getTime() + ttlSeconds * 1000);
+
+        var builder = Jwts.builder()
+                .id(UUID.randomUUID().toString())
+                .subject("action-token")
+                .issuedAt(now)
+                .expiration(expiry);
+
+        claims.forEach(builder::claim);
+
+        return builder.signWith(key).compact();
+    }
+
+    /**
+     * 解析并验证操作确认令牌，返回 claims。
+     */
+    public Claims parseActionToken(String token) {
+        return Jwts.parser()
+                .verifyWith(key)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
     }
 
     public String getUsernameFromToken(String token) {

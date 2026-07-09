@@ -161,6 +161,9 @@ public class WeatherService {
             }
 
             NowWeather now = response.now;
+            if (now == null) {
+                return "未查询到" + city + "的天气信息";
+            }
             return city + "当前天气：" + now.text + "，温度" + now.temp + "°C，"
                     + now.windDir + now.windScale + "级，湿度" + now.humidity + "%";
         } catch (Exception e) {
