@@ -7,6 +7,17 @@ jwt:
   expiration: 86400000
 
 ###################
+# Zipkin 分布式追踪
+###################
+management:
+  tracing:
+    sampling:
+      probability: 1.0
+  zipkin:
+    tracing:
+      endpoint: http://localhost:9411/api/v2/spans
+
+###################
 # 功能开关（Feature Flags）
 # 可动态控制功能启用/禁用，无需重新部署
 ###################
