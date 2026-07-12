@@ -7,6 +7,7 @@ import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Pointcut;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
@@ -14,6 +15,7 @@ import reactor.core.publisher.Flux;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
 
+import java.util.Map;
 import java.util.regex.Pattern;
 
 @Aspect
@@ -156,12 +158,16 @@ public class ChatGlobalAspect {
             currentSpan.tag("chatId", chatId);
             currentSpan.tag("mode", mode);
         }
+        MDC.put("chatId", chatId);
+        MDC.put("mode", mode);
 
         // 输入治理（可通过 feature flags 动态关闭）
         if (featureFlags.isInputGuardEnabled()) {
             InputGuardResult guardResult = guardInput(chatId, userMessage);
             if (guardResult.blocked()) {
                 logger.warn("输入被拦截: reason={}", guardResult.reason());
+                MDC.remove("chatId");
+                MDC.remove("mode");
                 if ("Graph".equals(mode)) {
                     return Flux.just(ServerSentEvent.<String>builder().data(REJECT_MESSAGE).build());
                 }
@@ -184,10 +190,14 @@ public class ChatGlobalAspect {
                 }
             }
 
+            MDC.remove("chatId");
+            MDC.remove("mode");
             return rawResult;
         } catch (Throwable e) {
             long elapsed = System.currentTimeMillis() - start;
             logger.error("Chat 同步异常: 耗时={}ms, error={}", elapsed, e.getMessage());
+            MDC.remove("chatId");
+            MDC.remove("mode");
             return Flux.just(SAFE_FALLBACK);
         }
 
@@ -237,25 +247,34 @@ public class ChatGlobalAspect {
 
     private Flux<String> attachFunctionCallingHooks(String chatId, long start, Flux<String> result) {
         StringBuffer fullResponse = new StringBuffer();
+        Map<String, String> mdc = MDC.getCopyOfContextMap();
 
         return result
                 .doOnNext(chunk -> fullResponse.append(chunk))
                 .doOnComplete(() -> {
-                    long elapsed = System.currentTimeMillis() - start;
-                    validateAndLog(elapsed, fullResponse.toString());
-
+                    restoreMdc(mdc);
+                    try {
+                        long elapsed = System.currentTimeMillis() - start;
+                        validateAndLog(elapsed, fullResponse.toString());
+                    } finally {
+                        MDC.clear();
+                    }
                 })
                 .doOnError(error -> {
-
-                    long elapsed = System.currentTimeMillis() - start;
-                    logger.error("Chat 异常: 耗时={}ms, error={}", elapsed, error.getMessage());
-
+                    restoreMdc(mdc);
+                    try {
+                        long elapsed = System.currentTimeMillis() - start;
+                        logger.error("Chat 异常: 耗时={}ms, error={}", elapsed, error.getMessage());
+                    } finally {
+                        MDC.clear();
+                    }
                 })
                 .onErrorResume(error -> Flux.just(SAFE_FALLBACK));
     }
 
     private Flux<ServerSentEvent<String>> attachGraphHooks(long start, Flux<ServerSentEvent<String>> result) {
         StringBuffer fullResponse = new StringBuffer();
+        Map<String, String> mdc = MDC.getCopyOfContextMap();
 
         return result
                 .doOnNext(event -> {
@@ -264,16 +283,35 @@ public class ChatGlobalAspect {
                     }
                 })
                 .doOnComplete(() -> {
-                    long elapsed = System.currentTimeMillis() - start;
-                    validateAndLog(elapsed, fullResponse.toString());
-
+                    restoreMdc(mdc);
+                    try {
+                        long elapsed = System.currentTimeMillis() - start;
+                        validateAndLog(elapsed, fullResponse.toString());
+                    } finally {
+                        MDC.clear();
+                    }
                 })
                 .doOnError(error -> {
-                    long elapsed = System.currentTimeMillis() - start;
-                    logger.error("Graph Chat 异常: 耗时={}ms, error={}", elapsed, error.getMessage());
+                    restoreMdc(mdc);
+                    try {
+                        long elapsed = System.currentTimeMillis() - start;
+                        logger.error("Graph Chat 异常: 耗时={}ms, error={}", elapsed, error.getMessage());
+                    } finally {
+                        MDC.clear();
+                    }
                 })
                 .onErrorResume(error -> Flux.just(ServerSentEvent.<String>builder()
                         .data(SAFE_FALLBACK).build()));
+    }
+
+    /**
+     * 合并恢复 MDC 上下文，使用逐个 put 而非 setContextMap，
+     * 避免覆盖 Reactor 自动传播的 traceId/spanId。 
+     */
+    private void restoreMdc(Map<String, String> mdc) {
+        if (mdc != null) {
+            mdc.forEach(MDC::put);
+        }
     }
 
     private void validateAndLog(long elapsed, String response) {

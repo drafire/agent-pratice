@@ -124,14 +124,14 @@ public class ResponseGuardAdvisor implements CallAdvisor, StreamAdvisor {
         String guardedText = responseGuard.sanitize(originalText);
         if (!guardedText.equals(originalText)) {
             AssistantMessage guardedMessage = AssistantMessage.builder()
-                    .content(guardedText)
-                    .properties(assistantMessage.getMetadata() != null
-                            ? assistantMessage.getMetadata() : Collections.emptyMap())
-                    .media(assistantMessage.getMedia() != null
-                            ? assistantMessage.getMedia() : Collections.emptyList())
-                    .toolCalls(assistantMessage.getToolCalls() != null
-                            ? assistantMessage.getToolCalls() : Collections.emptyList())
-                    .build();
+                .content(guardedText)
+                .properties(assistantMessage.getMetadata() != null
+                        ? assistantMessage.getMetadata() : Collections.emptyMap())
+                .media(assistantMessage.getMedia() != null
+                        ? assistantMessage.getMedia() : Collections.emptyList())
+                .toolCalls(assistantMessage.getToolCalls() != null
+                        ? assistantMessage.getToolCalls() : Collections.emptyList())
+                .build();
             return new Generation(guardedMessage, generation.getMetadata());
         }
         return generation;

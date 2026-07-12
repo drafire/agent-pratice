@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.memory.ChatMemory;
 
 import java.time.LocalDate;
 import java.util.HashMap;
@@ -20,7 +21,7 @@ public class ParameterExtractorNode implements AsyncNodeAction {
 
     private final ChatClient chatClient;
 
-    public ParameterExtractorNode(ChatClient.Builder builder) {
+    public ParameterExtractorNode(ChatClient.Builder builder, ChatMemory chatMemory) {
         this.chatClient = builder.build();
     }
 

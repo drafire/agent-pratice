@@ -137,17 +137,16 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
-        <!-- 引入 Brave + Zipkin 自动埋点 start-->
+        <!-- 引入 Brave 自动埋点（traceId/spanId 自动注入 MDC） -->
         <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-tracing-bridge-brave</artifactId>
         </dependency>
-
+        <!-- Zipkin HTTP Sender，用于将追踪数据发送到 Zipkin 服务器 -->
         <dependency>
             <groupId>io.zipkin.reporter2</groupId>
             <artifactId>zipkin-reporter-brave</artifactId>
         </dependency>
-        <!-- 引入 Brave + Zipkin 自动埋点 end-->
 
     </dependencies>
 

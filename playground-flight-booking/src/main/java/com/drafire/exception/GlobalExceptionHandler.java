@@ -10,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.bind.support.WebExchangeBindException;
+import org.springframework.web.reactive.resource.NoResourceFoundException;
 
 import java.util.Map;
 
@@ -86,6 +87,14 @@ public class GlobalExceptionHandler {
                 "success", false,
                 "error", message
         ));
+    }
+
+    // ──────────────── 静态资源缺失 ────────────────
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<Void> handleNoResourceFound(NoResourceFoundException e) {
+        logger.debug("静态资源未找到: {}", e.getMessage());
+        return ResponseEntity.notFound().build();
     }
 
     // ──────────────── 兜底 ────────────────

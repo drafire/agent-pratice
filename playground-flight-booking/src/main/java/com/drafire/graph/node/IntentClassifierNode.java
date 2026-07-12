@@ -5,6 +5,7 @@ import com.alibaba.cloud.ai.graph.action.AsyncNodeAction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.memory.ChatMemory;
 
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -15,7 +16,7 @@ public class IntentClassifierNode implements AsyncNodeAction {
 
     private final ChatClient chatClient;
 
-    public IntentClassifierNode(ChatClient.Builder builder) {
+    public IntentClassifierNode(ChatClient.Builder builder, ChatMemory chatMemory) {
         this.chatClient = builder.build();
     }
 

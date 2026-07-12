@@ -6,9 +6,13 @@ import com.drafire.interceptor.ResponseGuard;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.client.advisor.PromptChatMemoryAdvisor;
+import org.springframework.ai.chat.memory.ChatMemory;
 
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+
+import static org.springframework.ai.chat.memory.ChatMemory.CONVERSATION_ID;
 
 public class ResponseGeneratorNode implements AsyncNodeAction {
 
@@ -17,13 +21,14 @@ public class ResponseGeneratorNode implements AsyncNodeAction {
     private final ChatClient chatClient;
     private final ResponseGuard responseGuard;
 
-    public ResponseGeneratorNode(ChatClient.Builder builder, ResponseGuard responseGuard) {
+    public ResponseGeneratorNode(ChatClient.Builder builder, ChatMemory chatMemory, ResponseGuard responseGuard) {
         this.responseGuard = responseGuard;
         this.chatClient = builder
                 .defaultSystem("""
                     你是 Funnair 航空公司的客服助手。请根据工具执行结果，
                     用友好、专业的中文回复用户。如果是取消订单的确认请求，
                     引导用户明确回复"确认取消"或"不取消"。""")
+                .defaultAdvisors(PromptChatMemoryAdvisor.builder(chatMemory).build())
                 .build();
     }
 
@@ -36,6 +41,7 @@ public class ResponseGeneratorNode implements AsyncNodeAction {
 
         if ("GENERAL".equals(intent)) {
             return chatClient.prompt()
+                    .advisors(advisorSpec -> advisorSpec.param(CONVERSATION_ID, state.value("chatId", "")))
                     .user(userInput)
                     .stream()
                     .content()
@@ -49,6 +55,7 @@ public class ResponseGeneratorNode implements AsyncNodeAction {
                     .toFuture();
         } else {
             return chatClient.prompt()
+                    .advisors(advisorSpec -> advisorSpec.param(CONVERSATION_ID, state.value("chatId", "")))
                     .user(userSpec -> userSpec.text("""
                         用户原始输入: {input}
                         工具执行结果: {result}
