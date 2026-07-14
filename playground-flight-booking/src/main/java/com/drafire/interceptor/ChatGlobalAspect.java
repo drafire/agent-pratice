@@ -1,6 +1,8 @@
 package com.drafire.interceptor;
 
 import com.drafire.config.FeatureFlags;
+import com.drafire.config.GraphMetrics;
+import io.micrometer.core.instrument.Timer;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
@@ -122,11 +124,13 @@ public class ChatGlobalAspect {
     private final ResponseGuard responseGuard;
     private final FeatureFlags featureFlags;
     private final Tracer tracer;
+    private final GraphMetrics graphMetrics;
 
-    public ChatGlobalAspect(ResponseGuard responseGuard, FeatureFlags featureFlags, Tracer tracer) {
+    public ChatGlobalAspect(ResponseGuard responseGuard, FeatureFlags featureFlags, Tracer tracer, GraphMetrics graphMetrics) {
         this.responseGuard = responseGuard;
         this.featureFlags = featureFlags;
         this.tracer = tracer;
+        this.graphMetrics = graphMetrics;
     }
 
     @Pointcut("execution(* com.drafire.serivce.CustomerSupportAssistant.chat(..))")
@@ -149,6 +153,8 @@ public class ChatGlobalAspect {
 
     @SuppressWarnings("unchecked")
     private Object aroundChat(ProceedingJoinPoint pjp, String mode) {
+        graphMetrics.recordRequest();
+        Timer.Sample sample = graphMetrics.startGraphTimer();
         Object[] args = pjp.getArgs();
         String chatId = (String) args[0];
         String userMessage = (String) args[1];
@@ -184,9 +190,9 @@ public class ChatGlobalAspect {
 
             if (rawResult instanceof Flux<?> flux) {
                 if ("Graph".equals(mode)) {
-                    return attachGraphHooks(start, (Flux<ServerSentEvent<String>>) flux);
+                    return attachGraphHooks(start, (Flux<ServerSentEvent<String>>) flux, sample);
                 } else {
-                    return attachFunctionCallingHooks(chatId, start, (Flux<String>) flux);
+                    return attachFunctionCallingHooks(start, (Flux<String>) flux, sample);
                 }
             }
 
@@ -245,7 +251,7 @@ public class ChatGlobalAspect {
         }
     }
 
-    private Flux<String> attachFunctionCallingHooks(String chatId, long start, Flux<String> result) {
+    private Flux<String> attachFunctionCallingHooks(long start, Flux<String> result,Timer.Sample sample) {
         StringBuffer fullResponse = new StringBuffer();
         Map<String, String> mdc = MDC.getCopyOfContextMap();
 
@@ -259,6 +265,8 @@ public class ChatGlobalAspect {
                     } finally {
                         MDC.clear();
                     }
+                    graphMetrics.recordSuccess();
+                    graphMetrics.stopGraphTimer(sample);
                 })
                 .doOnError(error -> {
                     restoreMdc(mdc);
@@ -268,11 +276,13 @@ public class ChatGlobalAspect {
                     } finally {
                         MDC.clear();
                     }
+                    graphMetrics.recordFailure();
+                    graphMetrics.stopGraphTimer(sample);
                 })
                 .onErrorResume(error -> Flux.just(SAFE_FALLBACK));
     }
 
-    private Flux<ServerSentEvent<String>> attachGraphHooks(long start, Flux<ServerSentEvent<String>> result) {
+    private Flux<ServerSentEvent<String>> attachGraphHooks(long start, Flux<ServerSentEvent<String>> result,Timer.Sample sample) {
         StringBuffer fullResponse = new StringBuffer();
         Map<String, String> mdc = MDC.getCopyOfContextMap();
 
@@ -290,6 +300,8 @@ public class ChatGlobalAspect {
                     } finally {
                         MDC.clear();
                     }
+                    graphMetrics.recordSuccess();
+                    graphMetrics.stopGraphTimer(sample);
                 })
                 .doOnError(error -> {
                     restoreMdc(mdc);
@@ -299,6 +311,8 @@ public class ChatGlobalAspect {
                     } finally {
                         MDC.clear();
                     }
+                    graphMetrics.recordFailure();
+                    graphMetrics.stopGraphTimer(sample);
                 })
                 .onErrorResume(error -> Flux.just(ServerSentEvent.<String>builder()
                         .data(SAFE_FALLBACK).build()));

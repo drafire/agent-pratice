@@ -2,6 +2,8 @@ package com.drafire.graph.node;
 
 import com.alibaba.cloud.ai.graph.OverAllState;
 import com.alibaba.cloud.ai.graph.action.AsyncNodeAction;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import org.slf4j.MDC;
 
 import java.util.Map;
@@ -12,9 +14,13 @@ import java.util.concurrent.CompletableFuture;
 public class MdcPropagatingNodeAction implements AsyncNodeAction {
 
     private final AsyncNodeAction delegate;
+    private final MeterRegistry registry;
+    private final String nodeName;
 
-    public MdcPropagatingNodeAction(AsyncNodeAction delegate) {
+    public MdcPropagatingNodeAction(AsyncNodeAction delegate, MeterRegistry registry, String nodeName) {
         this.delegate = delegate;
+        this.registry = registry;
+        this.nodeName = nodeName;
     }
 
     @Override
@@ -38,8 +44,15 @@ public class MdcPropagatingNodeAction implements AsyncNodeAction {
             MDC.put("chatId", chatId);
         }
 
+        Timer.Sample sample = Timer.start();
         return delegate.apply(state)
-                .whenComplete((result, error) -> MDC.clear());
+                .whenComplete((result, error) -> {
+                    sample.stop(Timer.builder("graph.node.execution.time")
+                            .description("Graph node execution time")
+                            .tag("node", nodeName)
+                            .register(registry));
+                    MDC.clear();
+                });
     }
     
     /**

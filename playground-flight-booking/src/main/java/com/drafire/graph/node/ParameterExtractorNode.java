@@ -21,8 +21,8 @@ public class ParameterExtractorNode implements AsyncNodeAction {
 
     private final ChatClient chatClient;
 
-    public ParameterExtractorNode(ChatClient.Builder builder, ChatMemory chatMemory) {
-        this.chatClient = builder.build();
+    public ParameterExtractorNode(ChatClient chatClient) {
+        this.chatClient = chatClient;
     }
 
     @Override
@@ -67,18 +67,18 @@ public class ParameterExtractorNode implements AsyncNodeAction {
 
         return chatClient.prompt()
                 .user(userSpec -> userSpec.text("""
-                    从用户输入中提取结构化参数。只返回 JSON，不要返回其他内容。
-                    今天的日期是: {current_date}。如果用户没有明确指定日期，请使用今天之后的最近日期（如"明天"对应 {current_date} 的后一天）。
-
-                    目标 JSON 格式:
-                    {schema}
-
-                    用户输入: {input}
-
-                    JSON:""")
-                    .param("current_date", currentDate)
-                    .param("schema", schema)
-                    .param("input", userInput))
+                                从用户输入中提取结构化参数。只返回 JSON，不要返回其他内容。
+                                今天的日期是: {current_date}。如果用户没有明确指定日期，请使用今天之后的最近日期（如"明天"对应 {current_date} 的后一天）。
+                                
+                                目标 JSON 格式:
+                                {schema}
+                                
+                                用户输入: {input}
+                                
+                                JSON:""")
+                        .param("current_date", currentDate)
+                        .param("schema", schema)
+                        .param("input", userInput))
                 .stream()
                 .content()
                 .collectList()

@@ -16,6 +16,14 @@ management:
   zipkin:
     tracing:
       endpoint: http://localhost:9411/api/v2/spans
+  endpoints:
+    web:
+          exposure:
+            include: health,info,prometheus  # 添加 prometheus
+  metrics:
+    export:
+          prometheus:
+            enabled: true
 
 ###################
 # 功能开关（Feature Flags）

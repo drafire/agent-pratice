@@ -1,14 +1,8 @@
 package com.drafire.serivce;
 
 import com.drafire.interceptor.ResponseGuard;
-import com.drafire.interceptor.ResponseGuardAdvisor;
 import com.drafire.interceptor.ToolRegistry;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.client.advisor.PromptChatMemoryAdvisor;
-import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
-import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvisor;
-import org.springframework.ai.chat.memory.ChatMemory;
-import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
@@ -27,19 +21,14 @@ public class CustomerSupportAssistant {
     private final ChatClient chatClient;
     private final ResponseGuard responseGuard;
 
-    public CustomerSupportAssistant(ChatClient.Builder builder, VectorStore vectorStore, ChatMemory chatMemory,
+    public CustomerSupportAssistant(ChatClient chatClient,
                                     @Value("classpath:/prompts/flight-assistant.st") Resource resource,
                                     ResponseGuard responseGuard, ToolRegistry toolRegistry) {
         try {
             String systemPrompt = resource.getContentAsString(StandardCharsets.UTF_8);
             this.responseGuard = responseGuard;
-            this.chatClient = builder
+            this.chatClient = chatClient.mutate()
                     .defaultSystem(systemPrompt)
-                    .defaultAdvisors(
-                            new ResponseGuardAdvisor(responseGuard),
-                            PromptChatMemoryAdvisor.builder(chatMemory).build(),
-                            //QuestionAnswerAdvisor.builder(vectorStore).build(),
-                            new SimpleLoggerAdvisor())
                     .defaultToolNames(toolRegistry.toArray())
                     .build();
         } catch (IOException e) {

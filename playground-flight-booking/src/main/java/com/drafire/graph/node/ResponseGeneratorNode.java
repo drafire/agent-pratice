@@ -6,8 +6,6 @@ import com.drafire.interceptor.ResponseGuard;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.client.advisor.PromptChatMemoryAdvisor;
-import org.springframework.ai.chat.memory.ChatMemory;
 
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -21,14 +19,13 @@ public class ResponseGeneratorNode implements AsyncNodeAction {
     private final ChatClient chatClient;
     private final ResponseGuard responseGuard;
 
-    public ResponseGeneratorNode(ChatClient.Builder builder, ChatMemory chatMemory, ResponseGuard responseGuard) {
+    public ResponseGeneratorNode(ChatClient chatClient, ResponseGuard responseGuard) {
         this.responseGuard = responseGuard;
-        this.chatClient = builder
+        this.chatClient = chatClient.mutate()
                 .defaultSystem("""
                     你是 Funnair 航空公司的客服助手。请根据工具执行结果，
                     用友好、专业的中文回复用户。如果是取消订单的确认请求，
                     引导用户明确回复"确认取消"或"不取消"。""")
-                .defaultAdvisors(PromptChatMemoryAdvisor.builder(chatMemory).build())
                 .build();
     }
 
