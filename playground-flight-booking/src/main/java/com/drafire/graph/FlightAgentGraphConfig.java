@@ -85,11 +85,11 @@ public class FlightAgentGraphConfig {
 
         StateGraph graph = new StateGraph(keyStrategy)
                 .addNode("classify_intent", new MdcPropagatingNodeAction(new IntentClassifierNode(chatClient,graphMetrics),registry,"classify_intent"))
-                .addNode("extract_params", new MdcPropagatingNodeAction(new ParameterExtractorNode(chatClient),registry,"extract_params"))
+                .addNode("extract_params", new MdcPropagatingNodeAction(new ParameterExtractorNode(chatClient, graphMetrics),registry,"extract_params"))
                 .addNode("execute_action", new MdcPropagatingNodeAction(new ExecuteActionNode(
                         flightBookingService, flightSearchService, weatherService,
                         responseRenderer, responseGuard, actionTokenService),registry,"execute_action"))
-                .addNode("generate_response", new MdcPropagatingNodeAction(new ResponseGeneratorNode(chatClient, responseGuard),registry,"generate_response"))
+                .addNode("generate_response", new MdcPropagatingNodeAction(new ResponseGeneratorNode(chatClient, responseGuard, graphMetrics),registry,"generate_response"))
 
                 .addEdge(START, "classify_intent")
                 .addEdge("classify_intent", "extract_params")

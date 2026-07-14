@@ -2,12 +2,15 @@ package com.drafire.graph.node;
 
 import com.alibaba.cloud.ai.graph.OverAllState;
 import com.alibaba.cloud.ai.graph.action.AsyncNodeAction;
+import com.drafire.config.GraphMetrics;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.Timer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.chat.model.ChatResponse;
 
 import java.time.LocalDate;
 import java.util.HashMap;
@@ -20,9 +23,11 @@ public class ParameterExtractorNode implements AsyncNodeAction {
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
     private final ChatClient chatClient;
+    private final GraphMetrics graphMetrics;
 
-    public ParameterExtractorNode(ChatClient chatClient) {
+    public ParameterExtractorNode(ChatClient chatClient, GraphMetrics graphMetrics) {
         this.chatClient = chatClient;
+        this.graphMetrics = graphMetrics;
     }
 
     @Override
@@ -64,6 +69,7 @@ public class ParameterExtractorNode implements AsyncNodeAction {
         }
 
         String currentDate = LocalDate.now().toString();
+        Timer.Sample llmSample = graphMetrics.startLlmTimer();
 
         return chatClient.prompt()
                 .user(userSpec -> userSpec.text("""
@@ -80,11 +86,25 @@ public class ParameterExtractorNode implements AsyncNodeAction {
                         .param("schema", schema)
                         .param("input", userInput))
                 .stream()
-                .content()
+                .chatResponse()
                 .collectList()
-                .map(list -> {
+                .map(chatResponses -> {
                     try {
-                        String json = extractJson(String.join("", list));
+                        StringBuilder contentBuilder = new StringBuilder();
+                        long totalPromptTokens = 0;
+                        long totalCompletionTokens = 0;
+
+                        for (ChatResponse response : chatResponses) {
+                            if (response != null && response.getResult() != null) {
+                                contentBuilder.append(response.getResult().getOutput().getText());
+                            }
+                            if (response != null && response.getMetadata() != null && response.getMetadata().getUsage() != null) {
+                                totalPromptTokens += response.getMetadata().getUsage().getPromptTokens();
+                                totalCompletionTokens += response.getMetadata().getUsage().getCompletionTokens();
+                            }
+                        }
+
+                        String json = extractJson(contentBuilder.toString());
                         JsonNode root = objectMapper.readTree(json);
 
                         Map<String, Object> result = new HashMap<>();
@@ -97,9 +117,18 @@ public class ParameterExtractorNode implements AsyncNodeAction {
                         if (root.has("days")) result.put("weatherDays", root.get("days").asInt());
 
                         logger.info("[参数提取] 结果: {}", result);
+                        graphMetrics.stopLlmTimer(llmSample, "extract_params", "qwen3-max");
+
+                        if (totalPromptTokens > 0 || totalCompletionTokens > 0) {
+                            graphMetrics.recordTokenUsage("parameter_extraction", "prompt", totalPromptTokens);
+                            graphMetrics.recordTokenUsage("parameter_extraction", "completion", totalCompletionTokens);
+                            logger.info("[Token统计] 参数提取: prompt={}, completion={}", totalPromptTokens, totalCompletionTokens);
+                        }
+
                         return result;
                     } catch (Exception e) {
                         logger.error("[参数提取] 失败: {}", e.getMessage());
+                        graphMetrics.stopLlmTimer(llmSample, "extract_params", "qwen3-max");
                         return Map.<String, Object>of();
                     }
                 })
@@ -110,7 +139,15 @@ public class ParameterExtractorNode implements AsyncNodeAction {
         int start = raw.indexOf("{");
         int end = raw.lastIndexOf("}");
         if (start >= 0 && end > start) {
-            return raw.substring(start, end + 1);
+            String json = raw.substring(start, end + 1);
+            return json.replace("，", ",")
+                    .replace("：", ":")
+                    .replace("“", "\"")
+                    .replace("”", "\"")
+                    .replace("【", "[")
+                    .replace("】", "]")
+                    .replace("｛", "{")
+                    .replace("｝", "}");
         }
         return raw;
     }

@@ -153,8 +153,7 @@ public class ChatGlobalAspect {
 
     @SuppressWarnings("unchecked")
     private Object aroundChat(ProceedingJoinPoint pjp, String mode) {
-        graphMetrics.recordRequest();
-        Timer.Sample sample = graphMetrics.startGraphTimer();
+        Timer.Sample sample = graphMetrics.startRequestTimer();
         Object[] args = pjp.getArgs();
         String chatId = (String) args[0];
         String userMessage = (String) args[1];
@@ -169,9 +168,12 @@ public class ChatGlobalAspect {
 
         // 输入治理（可通过 feature flags 动态关闭）
         if (featureFlags.isInputGuardEnabled()) {
-            InputGuardResult guardResult = guardInput(chatId, userMessage);
+            InputGuardResult guardResult = guardInput(chatId, userMessage, mode);
             if (guardResult.blocked()) {
                 logger.warn("输入被拦截: reason={}", guardResult.reason());
+                graphMetrics.recordInputGuarded(guardResult.reason());
+                graphMetrics.recordRequest(mode, "unknown", "blocked");
+                graphMetrics.stopRequestTimer(sample, mode, "unknown");
                 MDC.remove("chatId");
                 MDC.remove("mode");
                 if ("Graph".equals(mode)) {
@@ -183,6 +185,7 @@ public class ChatGlobalAspect {
         }
 
         logger.info("Chat 请求: message={}", args[1]);
+        graphMetrics.recordRequest(mode, "unknown", "accepted");
 
         long start = System.currentTimeMillis();
         try {
@@ -190,9 +193,9 @@ public class ChatGlobalAspect {
 
             if (rawResult instanceof Flux<?> flux) {
                 if ("Graph".equals(mode)) {
-                    return attachGraphHooks(start, (Flux<ServerSentEvent<String>>) flux, sample);
+                    return attachGraphHooks(start, (Flux<ServerSentEvent<String>>) flux, sample, mode);
                 } else {
-                    return attachFunctionCallingHooks(start, (Flux<String>) flux, sample);
+                    return attachFunctionCallingHooks(start, (Flux<String>) flux, sample, mode);
                 }
             }
 
@@ -202,6 +205,8 @@ public class ChatGlobalAspect {
         } catch (Throwable e) {
             long elapsed = System.currentTimeMillis() - start;
             logger.error("Chat 同步异常: 耗时={}ms, error={}", elapsed, e.getMessage());
+            graphMetrics.recordError(mode, e.getClass().getSimpleName());
+            graphMetrics.stopRequestTimer(sample, mode, "unknown");
             MDC.remove("chatId");
             MDC.remove("mode");
             return Flux.just(SAFE_FALLBACK);
@@ -213,7 +218,7 @@ public class ChatGlobalAspect {
      * 输入治理：对用户输入做安全检查，返回治理结果。
      * 注入检测命中直接拦截，超长输入截断处理。
      */
-    private InputGuardResult guardInput(String chatId, String rawInput) {
+    private InputGuardResult guardInput(String chatId, String rawInput, String mode) {
         if (rawInput == null || rawInput.isEmpty()) {
             return InputGuardResult.blocked("输入为空");
         }
@@ -251,7 +256,7 @@ public class ChatGlobalAspect {
         }
     }
 
-    private Flux<String> attachFunctionCallingHooks(long start, Flux<String> result,Timer.Sample sample) {
+    private Flux<String> attachFunctionCallingHooks(long start, Flux<String> result, Timer.Sample sample, String mode) {
         StringBuffer fullResponse = new StringBuffer();
         Map<String, String> mdc = MDC.getCopyOfContextMap();
 
@@ -265,8 +270,7 @@ public class ChatGlobalAspect {
                     } finally {
                         MDC.clear();
                     }
-                    graphMetrics.recordSuccess();
-                    graphMetrics.stopGraphTimer(sample);
+                    graphMetrics.stopRequestTimer(sample, mode, "unknown");
                 })
                 .doOnError(error -> {
                     restoreMdc(mdc);
@@ -276,13 +280,13 @@ public class ChatGlobalAspect {
                     } finally {
                         MDC.clear();
                     }
-                    graphMetrics.recordFailure();
-                    graphMetrics.stopGraphTimer(sample);
+                    graphMetrics.recordError(mode, error.getClass().getSimpleName());
+                    graphMetrics.stopRequestTimer(sample, mode, "unknown");
                 })
                 .onErrorResume(error -> Flux.just(SAFE_FALLBACK));
     }
 
-    private Flux<ServerSentEvent<String>> attachGraphHooks(long start, Flux<ServerSentEvent<String>> result,Timer.Sample sample) {
+    private Flux<ServerSentEvent<String>> attachGraphHooks(long start, Flux<ServerSentEvent<String>> result, Timer.Sample sample, String mode) {
         StringBuffer fullResponse = new StringBuffer();
         Map<String, String> mdc = MDC.getCopyOfContextMap();
 
@@ -300,8 +304,7 @@ public class ChatGlobalAspect {
                     } finally {
                         MDC.clear();
                     }
-                    graphMetrics.recordSuccess();
-                    graphMetrics.stopGraphTimer(sample);
+                    graphMetrics.stopRequestTimer(sample, mode, "unknown");
                 })
                 .doOnError(error -> {
                     restoreMdc(mdc);
@@ -311,8 +314,8 @@ public class ChatGlobalAspect {
                     } finally {
                         MDC.clear();
                     }
-                    graphMetrics.recordFailure();
-                    graphMetrics.stopGraphTimer(sample);
+                    graphMetrics.recordError(mode, error.getClass().getSimpleName());
+                    graphMetrics.stopRequestTimer(sample, mode, "unknown");
                 })
                 .onErrorResume(error -> Flux.just(ServerSentEvent.<String>builder()
                         .data(SAFE_FALLBACK).build()));

@@ -2,10 +2,13 @@ package com.drafire.graph.node;
 
 import com.alibaba.cloud.ai.graph.OverAllState;
 import com.alibaba.cloud.ai.graph.action.AsyncNodeAction;
+import com.drafire.config.GraphMetrics;
 import com.drafire.interceptor.ResponseGuard;
+import io.micrometer.core.instrument.Timer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatResponse;
 
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -18,9 +21,11 @@ public class ResponseGeneratorNode implements AsyncNodeAction {
 
     private final ChatClient chatClient;
     private final ResponseGuard responseGuard;
+    private final GraphMetrics graphMetrics;
 
-    public ResponseGeneratorNode(ChatClient chatClient, ResponseGuard responseGuard) {
+    public ResponseGeneratorNode(ChatClient chatClient, ResponseGuard responseGuard, GraphMetrics graphMetrics) {
         this.responseGuard = responseGuard;
+        this.graphMetrics = graphMetrics;
         this.chatClient = chatClient.mutate()
                 .defaultSystem("""
                     你是 Funnair 航空公司的客服助手。请根据工具执行结果，
@@ -36,17 +41,41 @@ public class ResponseGeneratorNode implements AsyncNodeAction {
         String toolResult = state.value("toolResult", "");
         logger.info("[响应生成] intent={}, toolResult长度={}", intent, toolResult != null ? toolResult.length() : 0);
 
+        Timer.Sample llmSample = graphMetrics.startLlmTimer();
+
         if ("GENERAL".equals(intent)) {
             return chatClient.prompt()
                     .advisors(advisorSpec -> advisorSpec.param(CONVERSATION_ID, state.value("chatId", "")))
                     .user(userInput)
                     .stream()
-                    .content()
+                    .chatResponse()
                     .collectList()
-                    .map(list -> {
-                        String reply = String.join("", list);
+                    .map(chatResponses -> {
+                        StringBuilder contentBuilder = new StringBuilder();
+                        long totalPromptTokens = 0;
+                        long totalCompletionTokens = 0;
+
+                        for (ChatResponse response : chatResponses) {
+                            if (response != null && response.getResult() != null) {
+                                contentBuilder.append(response.getResult().getOutput().getText());
+                            }
+                            if (response != null && response.getMetadata() != null && response.getMetadata().getUsage() != null) {
+                                totalPromptTokens += response.getMetadata().getUsage().getPromptTokens();
+                                totalCompletionTokens += response.getMetadata().getUsage().getCompletionTokens();
+                            }
+                        }
+
+                        String reply = contentBuilder.toString();
                         String sanitized = responseGuard.sanitize(reply);
                         logValidation(intent, sanitized);
+                        graphMetrics.stopLlmTimer(llmSample, "generate_response", "qwen3-max");
+
+                        if (totalPromptTokens > 0 || totalCompletionTokens > 0) {
+                            graphMetrics.recordTokenUsage("response_generation", "prompt", totalPromptTokens);
+                            graphMetrics.recordTokenUsage("response_generation", "completion", totalCompletionTokens);
+                            logger.info("[Token统计] 响应生成: prompt={}, completion={}", totalPromptTokens, totalCompletionTokens);
+                        }
+
                         return Map.<String, Object>of("reply", sanitized != null ? sanitized : "");
                     })
                     .toFuture();
@@ -61,12 +90,34 @@ public class ResponseGeneratorNode implements AsyncNodeAction {
                         .param("input", userInput)
                         .param("result", toolResult))
                     .stream()
-                    .content()
+                    .chatResponse()
                     .collectList()
-                    .map(list -> {
-                        String reply = String.join("", list);
+                    .map(chatResponses -> {
+                        StringBuilder contentBuilder = new StringBuilder();
+                        long totalPromptTokens = 0;
+                        long totalCompletionTokens = 0;
+
+                        for (ChatResponse response : chatResponses) {
+                            if (response != null && response.getResult() != null) {
+                                contentBuilder.append(response.getResult().getOutput().getText());
+                            }
+                            if (response != null && response.getMetadata() != null && response.getMetadata().getUsage() != null) {
+                                totalPromptTokens += response.getMetadata().getUsage().getPromptTokens();
+                                totalCompletionTokens += response.getMetadata().getUsage().getCompletionTokens();
+                            }
+                        }
+
+                        String reply = contentBuilder.toString();
                         String sanitized = responseGuard.sanitize(reply);
                         logValidation(intent, sanitized);
+                        graphMetrics.stopLlmTimer(llmSample, "generate_response", "qwen3-max");
+
+                        if (totalPromptTokens > 0 || totalCompletionTokens > 0) {
+                            graphMetrics.recordTokenUsage("response_generation", "prompt", totalPromptTokens);
+                            graphMetrics.recordTokenUsage("response_generation", "completion", totalCompletionTokens);
+                            logger.info("[Token统计] 响应生成: prompt={}, completion={}", totalPromptTokens, totalCompletionTokens);
+                        }
+
                         return Map.<String, Object>of("reply", sanitized != null ? sanitized : "");
                     })
                     .toFuture();
