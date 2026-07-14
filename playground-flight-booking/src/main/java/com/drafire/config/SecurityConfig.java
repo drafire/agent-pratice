@@ -51,7 +51,7 @@ public class SecurityConfig {
                 .httpBasic(ServerHttpSecurity.HttpBasicSpec::disable)
                 .logout(ServerHttpSecurity.LogoutSpec::disable)
                 .authorizeExchange(exchanges -> exchanges
-                        .pathMatchers("/login", "/login.html", "/login.js", "/auth-bridge.js", "/api/auth/**", "/assets/**", "/index.html", "/graph.html", "/confirm-action.html", "/favicon.ico","/actuator/prometheus").permitAll()
+                        .pathMatchers("/login", "/login.html", "/login.js", "/auth-bridge.js", "/api/auth/**", "/assets/**", "/index.html", "/graph.html", "/confirm-action.html", "/metrics.html", "/favicon.ico", "/actuator/prometheus", "/api/metrics").permitAll()
                         .pathMatchers(HttpMethod.GET, "/").permitAll()
                         .anyExchange().authenticated()
                 )
