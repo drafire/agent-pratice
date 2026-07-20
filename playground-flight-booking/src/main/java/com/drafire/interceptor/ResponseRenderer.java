@@ -50,9 +50,9 @@ public class ResponseRenderer {
         StringBuilder sb = new StringBuilder();
         sb.append("预订详情如下：\n");
         sb.append("预订编号：").append(booking.getBookingNumber()).append("\n");
-        sb.append("乘客姓名：").append(booking.getCustomer() != null ? booking.getCustomer().getName() : "").append("\n");
-        sb.append("出发地：").append(booking.getFrom()).append("\n");
-        sb.append("目的地：").append(booking.getTo()).append("\n");
+        sb.append("乘客姓名：").append(booking.getCustomerName() != null ? booking.getCustomerName() : "").append("\n");
+        sb.append("出发地：").append(booking.getOrigin()).append("\n");
+        sb.append("目的地：").append(booking.getDestination()).append("\n");
         sb.append("出发日期：").append(booking.getDate() != null ? booking.getDate().format(DATE_FMT) : "").append("\n");
         if (booking.getBookingTo() != null) {
             sb.append("回程日期：").append(booking.getBookingTo().format(DATE_FMT)).append("\n");

@@ -7,66 +7,38 @@ jwt:
   expiration: 86400000
 
 ###################
-# Zipkin 分布式追踪
+# Redis 配置
 ###################
-management:
-  tracing:
-    sampling:
-      probability: 1.0
-  zipkin:
-    tracing:
-      endpoint: http://localhost:9411/api/v2/spans
-  endpoints:
-    web:
-          exposure:
-            include: health,info,prometheus  # 添加 prometheus
-  metrics:
-    export:
-          prometheus:
-            enabled: true
-
-###################
-# 功能开关（Feature Flags）
-# 可动态控制功能启用/禁用，无需重新部署
-###################
-app:
-  feature:
-    graph-mode: true          # 是否启用 Graph 模式
-    weather-enabled: true     # 是否启用天气查询
-    input-guard-enabled: true # 是否启用输入治理（注入检测 + 超长截断）
-    output-guard-enabled: true # 是否启用输出治理（ResponseGuard 净化 + 验证）
-
 spring:
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      timeout: 10000ms
+      lettuce:
+        pool:
+          max-active: 4
+          max-idle: 2
+          min-idle: 1
+          max-wait: 1000ms
   threads:
     virtual:
       enabled: true
   thymeleaf:
     cache: false
-
-  ###################
-  # dashscope
-  ###################
   ai:
     dashscope:
       api-key: ${DASH_SCOPE_API_KEY}
       chat:
         options:
-          model: qwen3-max
+          model: qwen3-max-preview
           temperature: 0.3
-      # 添加嵌入模型配置
       embedding:
-        model: text-embedding-v3  # 使用通义千文的嵌入模型
-        dimensions: 1024          # 与 pgvector 配置的维度一致
-      #      # 确保配置了正确的 rerank 模型名称
+        model: text-embedding-v3
+        dimensions: 768
       rerank:
         options:
           model: qwen3-rerank
-    vectorstore:
-      pgvector:
-        dimensions: 1024   #这里需要和创建的vector的维度一样
-        index-type: hnsw
-        distance-type: cosine_distance
-        initialize-schema: true  # 开启自动建表
     alibaba:
       toolcalling:
         hefeng:
@@ -74,7 +46,6 @@ spring:
           api-key: ${HE_FENG_API_KEY}
           base-url: ${HE_FENG_BASE_URL}
   datasource:
-    # MySQL 主数据源，用于 chat memory
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/chat_memory?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
     username: root
@@ -89,24 +60,41 @@ spring:
   security:
     user:
       password: not-used
+
+###################
+# Zipkin 分布式追踪
+###################
+management:
+  tracing:
+    sampling:
+      probability: 1.0
+  zipkin:
+    tracing:
+      endpoint: http://localhost:9411/api/v2/spans
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+###################
+# 功能开关（Feature Flags）
+###################
+app:
+  feature:
+    graph-mode: true
+    weather-enabled: true
+    input-guard-enabled: true
+    output-guard-enabled: true
+
 springdoc:
   api-docs:
     path: /v3/api-docs
   swagger-ui:
     path: /swagger-ui.html
-
-###################
-# PGVector（独立 PostgreSQL 数据源）
-###################
-pgvector:
-  datasource:
-    driver-class-name: org.postgresql.Driver
-    url: jdbc:postgresql://drafire.pg.polardb.rds.aliyuncs.com:5432/drafire_ai_db
-    username: drafire_test
-    password: ${pg_password}
-    hikari:
-      connection-timeout: 10000
-      maximum-pool-size: 5
 
 ###################
 # MyBatis
@@ -121,3 +109,40 @@ logging:
   level:
     com.alibaba.cloud.ai.dashscope: DEBUG
     org.springframework.web.client: DEBUG
+
+###################
+# Resilience4j 弹性与容错
+###################
+resilience4j:
+  circuitbreaker:
+    instances:
+      llm-call:
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+  ratelimiter:
+    instances:
+      chat-api:
+        limit-for-period: 20
+        limit-refresh-period: 1s
+        timeout-duration: 500ms
+  retry:
+    instances:
+      llm-retry:
+        max-attempts: 3
+        wait-duration: 1s
+        exponential-backoff-multiplier: 2
+        retry-exceptions:
+          - java.net.SocketTimeoutException
+          - org.springframework.web.client.ResourceAccessException
+  timelimiter:
+    instances:
+      llm-timeout:
+        timeout-duration: 30s
+        cancel-running-future: true
+  bulkhead:
+    instances:
+      chat-api:
+        max-concurrent-calls: 10
+        max-wait-duration: 500ms

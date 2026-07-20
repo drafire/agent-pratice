@@ -58,15 +58,7 @@
             <artifactId>spring-ai-advisors-vector-store</artifactId>
         </dependency>
 
-        <dependency>
-            <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-pgvector-store</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-autoconfigure-vector-store-pgvector</artifactId>
-        </dependency>
+        <!-- pgvector 依赖已移除，改用 Redis 向量存储 -->
 
         <!-- 下面这个依赖，当chat memory存储上下文的时候，会写入数据库。支持多种关系型数据库 start -->
         <dependency>
@@ -86,6 +78,17 @@
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
+        </dependency>
+
+        <!-- Redis 向量存储依赖 -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-redis-store</artifactId>
+        </dependency>
+        <!-- Jedis 客户端，RedisVectorStore 使用 JedisPooled -->
+        <dependency>
+            <groupId>redis.clients</groupId>
+            <artifactId>jedis</artifactId>
         </dependency>
 
         <dependency>
@@ -146,6 +149,13 @@
         <dependency>
             <groupId>io.zipkin.reporter2</groupId>
             <artifactId>zipkin-reporter-brave</artifactId>
+        </dependency>
+
+        <!-- Resilience4j 弹性与容错 -->
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-spring-boot3</artifactId>
+            <version>2.2.0</version>
         </dependency>
 
         <!-- Prometheus 指标注册表，用于暴露 /actuator/prometheus 端点 -->

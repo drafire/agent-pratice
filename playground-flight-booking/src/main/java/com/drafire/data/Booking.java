@@ -26,24 +26,24 @@ public class Booking {
 
 	private LocalDate bookingTo;
 
-	private Customer customer;
+	private String customerName;
 
-	private String from;
+	private String origin;
 
-	private String to;
+	private String destination;
 
 	private BookingStatus bookingStatus;
 
 	private BookingClass bookingClass;
 
-	public Booking(String bookingNumber, LocalDate date, Customer customer, BookingStatus bookingStatus, String from,
-			String to, BookingClass bookingClass) {
+	public Booking(String bookingNumber, LocalDate date, String customerName, BookingStatus bookingStatus, String origin,
+			String destination, BookingClass bookingClass) {
 		this.bookingNumber = bookingNumber;
 		this.date = date;
-		this.customer = customer;
+		this.customerName = customerName;
 		this.bookingStatus = bookingStatus;
-		this.from = from;
-		this.to = to;
+		this.origin = origin;
+		this.destination = destination;
 		this.bookingClass = bookingClass;
 	}
 
@@ -71,12 +71,12 @@ public class Booking {
 		this.bookingTo = bookingTo;
 	}
 
-	public Customer getCustomer() {
-		return customer;
+	public String getCustomerName() {
+		return customerName;
 	}
 
-	public void setCustomer(Customer customer) {
-		this.customer = customer;
+	public void setCustomerName(String customerName) {
+		this.customerName = customerName;
 	}
 
 	public BookingStatus getBookingStatus() {
@@ -87,20 +87,20 @@ public class Booking {
 		this.bookingStatus = bookingStatus;
 	}
 
-	public String getFrom() {
-		return from;
+	public String getOrigin() {
+		return origin;
 	}
 
-	public void setFrom(String from) {
-		this.from = from;
+	public void setOrigin(String origin) {
+		this.origin = origin;
 	}
 
-	public String getTo() {
-		return to;
+	public String getDestination() {
+		return destination;
 	}
 
-	public void setTo(String to) {
-		this.to = to;
+	public void setDestination(String destination) {
+		this.destination = destination;
 	}
 
 	public BookingClass getBookingClass() {

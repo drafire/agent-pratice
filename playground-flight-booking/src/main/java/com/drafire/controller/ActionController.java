@@ -66,8 +66,8 @@ public class ActionController {
             Booking booking = flightBookingService.getBooking(bookingNumber, customerName);
             detail.put("bookingDetail", Map.of(
                     "date", booking.getDate().toString(),
-                    "from", booking.getFrom(),
-                    "to", booking.getTo(),
+                    "from", booking.getOrigin(),
+                    "to", booking.getDestination(),
                     "bookingClass", booking.getBookingClass(),
                     "status", booking.getBookingStatus()
             ));

@@ -5,6 +5,7 @@ import com.alibaba.cloud.ai.graph.NodeOutput;
 import com.alibaba.cloud.ai.graph.RunnableConfig;
 import com.alibaba.cloud.ai.graph.StateGraph;
 import com.alibaba.cloud.ai.graph.exception.GraphStateException;
+import com.drafire.exception.BusinessException;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
 import org.slf4j.Logger;
@@ -14,7 +15,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
-import reactor.core.publisher.Sinks;
+import reactor.core.publisher.SynchronousSink;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -57,29 +58,42 @@ public class GraphAssistantController {
         }
         RunnableConfig config = RunnableConfig.builder().threadId(chatId).build();
 
-        Flux<NodeOutput> stream = compiledGraph.stream(input, config);
-
-        Sinks.Many<ServerSentEvent<String>> sink = Sinks.many().unicast().onBackpressureBuffer();
-
-        stream.subscribe(
-                nodeOutput -> {
-                    if ("generate_response".equals(nodeOutput.node())) {
-                        Object reply = nodeOutput.state().value("reply", "");
-                        if (reply != null && !reply.toString().isEmpty()) {
-                            sink.tryEmitNext(ServerSentEvent.builder(reply.toString()).build());
-                        }
+        // ═════════════════════════════════════════════════════════════════
+        // 关键修复：直接操作 Flux 链，不使用 subscribe + sink 模式
+        //
+        // 核心注意事项：
+        // - L246 (aroundChat() 的 catch 块) 永远不会被调用！
+        //   因为 Controller 返回的是 Flux（懒执行），pjp.proceed() 只是创建 Flux 对象不抛异常
+        // - 真正的熔断计数在 ChatGlobalAspect.attachGraphHooks() 的 doOnError (L364)
+        // - 这里必须确保：非预期异常以 Flux.error(error) 形式传播，不能吞掉！
+        // ═════════════════════════════════════════════════════════════════
+        return compiledGraph.stream(input, config)
+                .doOnError(error -> logger.error("🔴 [Graph] 原始流发出 error 信号: {}", error.getMessage()))
+                .filter(nodeOutput -> "generate_response".equals(nodeOutput.node()))
+                .handle((NodeOutput nodeOutput, SynchronousSink<ServerSentEvent<String>> sink) -> {
+                    Object reply = nodeOutput.state().value("reply", "");
+                    if (reply != null && !reply.toString().isEmpty()) {
+                        sink.next(ServerSentEvent.builder(reply.toString()).build());
                     }
-                },
-                error -> {
-                    logger.error("Graph 执行失败", error);
-                    sink.tryEmitNext(ServerSentEvent.builder("抱歉，处理请求时出错了").build());
-                    sink.tryEmitComplete();
-                },
-                () -> sink.tryEmitComplete()
-        );
-
-        return sink.asFlux()
-                .doOnCancel(() -> logger.info("客户端断开连接"))
-                .doOnError(e -> logger.error("SSE 流错误", e));
+                })
+                .doOnError(error -> logger.error("🔴 [Graph] filter/handle 后仍有 error 信号: {}", error.getMessage()))
+                .onErrorResume(error -> {
+                    // ─── 区分处理两类异常 ───
+                    if (error instanceof BusinessException) {
+                        // ① 预期业务错误：返回友好消息，流正常完成（不增加熔断失败计数）
+                        BusinessException be = (BusinessException) error;
+                        String reply = "抱歉，" + be.getErrorCode() + "：" + be.getMessage();
+                        logger.warn("🟡 [Graph] 业务异常，返回友好消息（不触发熔断）: {}", reply);
+                        return Flux.just(ServerSentEvent.builder(reply).build());
+                    }
+                    // ② 非预期异常：关键！不能在这里吞掉 error 信号
+                    //   → Flux.error(error) 会继续传播到 Aspect 的 doOnError
+                    //   → circuitBreaker.onError() 才会被调用，熔断器才会打开
+                    logger.error("🔴 [Graph] 系统异常，传播 error 信号触发熔断: {}", error.getMessage());
+                    return Flux.error(error);
+                })
+                .doOnError(error -> logger.error("🔴 [Graph] onErrorResume 后仍有 error 信号（预期行为）: {}", error.getMessage()))
+                .doOnComplete(() -> logger.info("🟢 [Graph] 流正常完成"))
+                .doOnCancel(() -> logger.info("🟡 [Graph] 客户端断开连接"));
     }
 }

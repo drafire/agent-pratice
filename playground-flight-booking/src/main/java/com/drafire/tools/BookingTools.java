@@ -5,14 +5,17 @@ import com.drafire.data.BookingStatus;
 import com.drafire.serivce.FlightBookingService;
 import com.drafire.interceptor.ResponseRenderer;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import jakarta.validation.constraints.NotBlank;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Description;
+import org.springframework.validation.annotation.Validated;
 
 import java.time.LocalDate;
 import java.util.function.Function;
 
 @Configuration
+@Validated
 public class BookingTools {
 
     private final FlightBookingService flightBookingService;
@@ -23,14 +26,19 @@ public class BookingTools {
         this.responseRenderer = responseRenderer;
     }
 
-    public record BookingDetailRequest(String bookingNumber, String name) {
+    public record BookingDetailRequest(@NotBlank(message = "预定编号不能为空") String bookingNumber,
+                                       @NotBlank(message = "乘客姓名不能为空") String name) {
     }
 
-    public record ChangeBookingDetailRequest(String bookingNumber, String name, LocalDate newDate, String from,
-                                             String to) {
+    public record ChangeBookingDetailRequest(@NotBlank(message = "预定编号不能为空") String bookingNumber,
+                                             @NotBlank(message = "乘客姓名不能为空") String name,
+                                             LocalDate newDate,
+                                             @NotBlank(message = "出发地不能为空") String from,
+                                             @NotBlank(message = "目的地不能为空") String to) {
     }
 
-    public record CancelBookingRequest(String bookingNumber, String name) {
+    public record CancelBookingRequest(@NotBlank(message = "预定编号不能为空") String bookingNumber,
+                                       @NotBlank(message = "乘客姓名不能为空") String name) {
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

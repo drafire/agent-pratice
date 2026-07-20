@@ -2,7 +2,14 @@ package com.drafire.interceptor;
 
 import com.drafire.config.FeatureFlags;
 import com.drafire.config.GraphMetrics;
+import io.github.resilience4j.bulkhead.annotation.Bulkhead;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
+import io.github.resilience4j.retry.annotation.Retry;
 import io.micrometer.core.instrument.Timer;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
@@ -14,10 +21,8 @@ import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
-import io.micrometer.tracing.Span;
-import io.micrometer.tracing.Tracer;
-
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
 @Aspect
@@ -125,12 +130,15 @@ public class ChatGlobalAspect {
     private final FeatureFlags featureFlags;
     private final Tracer tracer;
     private final GraphMetrics graphMetrics;
+    private final CircuitBreakerRegistry circuitBreakerRegistry;
 
-    public ChatGlobalAspect(ResponseGuard responseGuard, FeatureFlags featureFlags, Tracer tracer, GraphMetrics graphMetrics) {
+    public ChatGlobalAspect(ResponseGuard responseGuard, FeatureFlags featureFlags, Tracer tracer,
+                            GraphMetrics graphMetrics, CircuitBreakerRegistry circuitBreakerRegistry) {
         this.responseGuard = responseGuard;
         this.featureFlags = featureFlags;
         this.tracer = tracer;
         this.graphMetrics = graphMetrics;
+        this.circuitBreakerRegistry = circuitBreakerRegistry;
     }
 
     @Pointcut("execution(* com.drafire.serivce.CustomerSupportAssistant.chat(..))")
@@ -142,17 +150,23 @@ public class ChatGlobalAspect {
     }
 
     @Around("functionCallingChat()")
-    public Object aroundFunctionCalling(ProceedingJoinPoint pjp) {
+    @Bulkhead(name = "chat-api", fallbackMethod = "bulkheadFallback")
+    @RateLimiter(name = "chat-api", fallbackMethod = "rateLimiterFallback")
+    @Retry(name = "llm-retry", fallbackMethod = "retryFallback")
+    public Object aroundFunctionCalling(ProceedingJoinPoint pjp) throws Throwable {
         return aroundChat(pjp, "FunctionCalling");
     }
 
     @Around("graphChat()")
-    public Object aroundGraph(ProceedingJoinPoint pjp) {
+    @Bulkhead(name = "chat-api", fallbackMethod = "bulkheadFallbackGraph")
+    @RateLimiter(name = "chat-api", fallbackMethod = "rateLimiterFallbackGraph")
+    @Retry(name = "llm-retry", fallbackMethod = "retryFallbackGraph")
+    public Object aroundGraph(ProceedingJoinPoint pjp) throws Throwable {
         return aroundChat(pjp, "Graph");
     }
 
     @SuppressWarnings("unchecked")
-    private Object aroundChat(ProceedingJoinPoint pjp, String mode) {
+    private Object aroundChat(ProceedingJoinPoint pjp, String mode) throws Throwable {
         Timer.Sample sample = graphMetrics.startRequestTimer();
         Object[] args = pjp.getArgs();
         String chatId = (String) args[0];
@@ -187,29 +201,56 @@ public class ChatGlobalAspect {
         logger.info("Chat 请求: message={}", args[1]);
         graphMetrics.recordRequest(mode, "unknown", "accepted");
 
+        CircuitBreaker circuitBreaker = circuitBreakerRegistry.circuitBreaker("llm-call");
+        var metrics = circuitBreaker.getMetrics();
+        logger.info("熔断器状态: mode={}, state={}, failures={}, success={}, failureRate={}%, notPermitted={}",
+                mode,
+                circuitBreaker.getState(),
+                metrics.getNumberOfFailedCalls(),
+                metrics.getNumberOfSuccessfulCalls(),
+                metrics.getFailureRate(),
+                metrics.getNumberOfNotPermittedCalls());
+
+        if (!circuitBreaker.tryAcquirePermission()) {
+            long waitInOpen = circuitBreaker.getMetrics().getNumberOfNotPermittedCalls();
+            logger.warn("熔断已打开: mode={}, notPermittedCalls={}", mode, waitInOpen);
+            graphMetrics.recordError(mode, "CircuitBreakerOpen");
+            graphMetrics.stopRequestTimer(sample, mode, "unknown");
+            MDC.remove("chatId");
+            MDC.remove("mode");
+            if ("Graph".equals(mode)) {
+                return Flux.just(ServerSentEvent.<String>builder()
+                        .data("服务暂时不可用，系统正在恢复中，请稍后再试。").build());
+            }
+            return Flux.just("服务暂时不可用，系统正在恢复中，请稍后再试。");
+        }
+
         long start = System.currentTimeMillis();
         try {
             Object rawResult = pjp.proceed();
 
             if (rawResult instanceof Flux<?> flux) {
                 if ("Graph".equals(mode)) {
-                    return attachGraphHooks(start, (Flux<ServerSentEvent<String>>) flux, sample, mode);
+                    return attachGraphHooks(start, (Flux<ServerSentEvent<String>>) flux, sample, mode, circuitBreaker);
                 } else {
-                    return attachFunctionCallingHooks(start, (Flux<String>) flux, sample, mode);
+                    return attachFunctionCallingHooks(start, (Flux<String>) flux, sample, mode, circuitBreaker);
                 }
             }
 
+            long elapsed = System.currentTimeMillis() - start;
+            circuitBreaker.onSuccess(elapsed, TimeUnit.MILLISECONDS);
             MDC.remove("chatId");
             MDC.remove("mode");
             return rawResult;
         } catch (Throwable e) {
             long elapsed = System.currentTimeMillis() - start;
+            circuitBreaker.onError(elapsed, TimeUnit.MILLISECONDS, e);
             logger.error("Chat 同步异常: 耗时={}ms, error={}", elapsed, e.getMessage());
             graphMetrics.recordError(mode, e.getClass().getSimpleName());
             graphMetrics.stopRequestTimer(sample, mode, "unknown");
             MDC.remove("chatId");
             MDC.remove("mode");
-            return Flux.just(SAFE_FALLBACK);
+            throw e;
         }
 
     }
@@ -256,7 +297,8 @@ public class ChatGlobalAspect {
         }
     }
 
-    private Flux<String> attachFunctionCallingHooks(long start, Flux<String> result, Timer.Sample sample, String mode) {
+    private Flux<String> attachFunctionCallingHooks(long start, Flux<String> result, Timer.Sample sample,
+                                                    String mode, CircuitBreaker circuitBreaker) {
         StringBuffer fullResponse = new StringBuffer();
         Map<String, String> mdc = MDC.getCopyOfContextMap();
 
@@ -267,6 +309,7 @@ public class ChatGlobalAspect {
                     try {
                         long elapsed = System.currentTimeMillis() - start;
                         validateAndLog(elapsed, fullResponse.toString());
+                        circuitBreaker.onSuccess(elapsed, TimeUnit.MILLISECONDS);
                     } finally {
                         MDC.clear();
                     }
@@ -276,7 +319,13 @@ public class ChatGlobalAspect {
                     restoreMdc(mdc);
                     try {
                         long elapsed = System.currentTimeMillis() - start;
-                        logger.error("Chat 异常: 耗时={}ms, error={}", elapsed, error.getMessage());
+                        circuitBreaker.onError(elapsed, TimeUnit.MILLISECONDS, error);
+                        var cbMetrics = circuitBreaker.getMetrics();
+                        logger.error("Chat 异常-熔断器: 耗时={}ms, error={}, failures={}, success={}, failureRate={}%",
+                                elapsed, error.getMessage(),
+                                cbMetrics.getNumberOfFailedCalls(),
+                                cbMetrics.getNumberOfSuccessfulCalls(),
+                                cbMetrics.getFailureRate());
                     } finally {
                         MDC.clear();
                     }
@@ -286,7 +335,8 @@ public class ChatGlobalAspect {
                 .onErrorResume(error -> Flux.just(SAFE_FALLBACK));
     }
 
-    private Flux<ServerSentEvent<String>> attachGraphHooks(long start, Flux<ServerSentEvent<String>> result, Timer.Sample sample, String mode) {
+    private Flux<ServerSentEvent<String>> attachGraphHooks(long start, Flux<ServerSentEvent<String>> result,
+                                                      Timer.Sample sample, String mode, CircuitBreaker circuitBreaker) {
         StringBuffer fullResponse = new StringBuffer();
         Map<String, String> mdc = MDC.getCopyOfContextMap();
 
@@ -301,16 +351,33 @@ public class ChatGlobalAspect {
                     try {
                         long elapsed = System.currentTimeMillis() - start;
                         validateAndLog(elapsed, fullResponse.toString());
+                        circuitBreaker.onSuccess(elapsed, TimeUnit.MILLISECONDS);
+                        var cbMetrics = circuitBreaker.getMetrics();
+                        logger.info("🔵 [Aspect] Graph 正常完成: 耗时={}ms, state={}, failures={}, success={}",
+                                elapsed, circuitBreaker.getState(),
+                                cbMetrics.getNumberOfFailedCalls(),
+                                cbMetrics.getNumberOfSuccessfulCalls());
                     } finally {
                         MDC.clear();
                     }
                     graphMetrics.stopRequestTimer(sample, mode, "unknown");
                 })
                 .doOnError(error -> {
+                    // ════════════════════════════════════════════════════════════════
+                    // 关键！这是真正触发 circuitBreaker.onError() 的地方
+                    // L246 (aroundChat() 的 catch 块) 永远不会被调用！
+                    // 因为 Controller 返回的是 Flux，pjp.proceed() 只是创建 Flux 不抛异常
+                    // ════════════════════════════════════════════════════════════════
                     restoreMdc(mdc);
                     try {
                         long elapsed = System.currentTimeMillis() - start;
-                        logger.error("Graph Chat 异常: 耗时={}ms, error={}", elapsed, error.getMessage());
+                        circuitBreaker.onError(elapsed, TimeUnit.MILLISECONDS, error);
+                        var cbMetrics = circuitBreaker.getMetrics();
+                        logger.error("🔴 [Aspect] Graph 异常-熔断器计数: 耗时={}ms, state={}, error={}, failures={}, success={}, failureRate={}%",
+                                elapsed, circuitBreaker.getState(), error.getMessage(),
+                                cbMetrics.getNumberOfFailedCalls(),
+                                cbMetrics.getNumberOfSuccessfulCalls(),
+                                cbMetrics.getFailureRate());
                     } finally {
                         MDC.clear();
                     }
@@ -350,5 +417,57 @@ public class ChatGlobalAspect {
             return text;
         }
         return text.substring(0, maxLength) + "...";
+    }
+
+    // ==================== FunctionCalling 模式 fallback ====================
+
+    public Flux<String> circuitBreakerFallback(ProceedingJoinPoint pjp, Throwable t) {
+        logger.error("熔断触发: mode=FunctionCalling, error={}", t.getMessage());
+        graphMetrics.recordError("FunctionCalling", "CircuitBreakerOpen");
+        return Flux.just("服务暂时不可用，系统正在恢复中，请稍后再试。");
+    }
+
+    public Flux<String> rateLimiterFallback(ProceedingJoinPoint pjp, Throwable t) {
+        logger.warn("限流触发: mode=FunctionCalling");
+        graphMetrics.recordError("FunctionCalling", "RateLimited");
+        return Flux.just("请求过于频繁，请稍后再试。");
+    }
+
+    public Flux<String> retryFallback(ProceedingJoinPoint pjp, Throwable t) {
+        logger.error("重试耗尽: mode=FunctionCalling, error={}", t.getMessage());
+        graphMetrics.recordError("FunctionCalling", "RetryExhausted");
+        return Flux.just("服务暂时不可用，请稍后再试。");
+    }
+
+    public Flux<String> bulkheadFallback(ProceedingJoinPoint pjp, Throwable t) {
+        logger.warn("舱壁满: mode=FunctionCalling");
+        graphMetrics.recordError("FunctionCalling", "BulkheadFull");
+        return Flux.just("系统繁忙，请稍后再试。");
+    }
+
+    // ==================== Graph 模式 fallback ====================
+
+    public Flux<ServerSentEvent<String>> circuitBreakerFallbackGraph(ProceedingJoinPoint pjp, Throwable t) {
+        logger.error("熔断触发: mode=Graph, error={}", t.getMessage());
+        graphMetrics.recordError("Graph", "CircuitBreakerOpen");
+        return Flux.just(ServerSentEvent.<String>builder().data("服务暂时不可用，系统正在恢复中，请稍后再试。").build());
+    }
+
+    public Flux<ServerSentEvent<String>> rateLimiterFallbackGraph(ProceedingJoinPoint pjp, Throwable t) {
+        logger.warn("限流触发: mode=Graph");
+        graphMetrics.recordError("Graph", "RateLimited");
+        return Flux.just(ServerSentEvent.<String>builder().data("请求过于频繁，请稍后再试。").build());
+    }
+
+    public Flux<ServerSentEvent<String>> retryFallbackGraph(ProceedingJoinPoint pjp, Throwable t) {
+        logger.error("重试耗尽: mode=Graph, error={}", t.getMessage());
+        graphMetrics.recordError("Graph", "RetryExhausted");
+        return Flux.just(ServerSentEvent.<String>builder().data("服务暂时不可用，请稍后再试。").build());
+    }
+
+    public Flux<ServerSentEvent<String>> bulkheadFallbackGraph(ProceedingJoinPoint pjp, Throwable t) {
+        logger.warn("舱壁满: mode=Graph");
+        graphMetrics.recordError("Graph", "BulkheadFull");
+        return Flux.just(ServerSentEvent.<String>builder().data("系统繁忙，请稍后再试。").build());
     }
 }

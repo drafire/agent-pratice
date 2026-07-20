@@ -37,4 +37,12 @@ public class ToolFunctionInterceptor implements BeanPostProcessor {
         }
         return bean;
     }
+
+    private Throwable getRootCause(Throwable e) {
+        Throwable cause = e;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
+        return cause;
+    }
 }

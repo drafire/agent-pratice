@@ -99,7 +99,7 @@ public class ExecuteActionNode implements AsyncNodeAction {
 
                     确认后将执行改签操作。""".formatted(
                     bookingNumber,
-                    booking.getFrom(), booking.getTo(), booking.getDate(),
+                    booking.getOrigin(), booking.getDestination(), booking.getDate(),
                     from, to, dateStr,
                     token);
     }
